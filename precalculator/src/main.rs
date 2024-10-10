@@ -1,0 +1,335 @@
+mod common;
+use common::BitBoard;
+use common::Constants;
+use common::SlidingAttackData;
+use common::LeapingAttackData;
+use common::AllMoveData;
+use std::{fs::File, io::Write};
+
+struct NotFiles {
+    a: BitBoard,
+    h: BitBoard,
+    ab: BitBoard,
+    gh: BitBoard,
+}
+
+fn main() {
+    // create bitboards to detect files
+    let mut a_file = BitBoard::new();
+    let mut b_file = BitBoard::new();
+    let mut g_file = BitBoard::new();
+    let mut h_file = BitBoard::new();
+    for i in 0..BitBoard::WIDTH {
+        let rank = i * 8;
+        a_file.set_bit(rank);
+        b_file.set_bit(rank + 1);
+
+        g_file.set_bit(rank + BitBoard::WIDTH - 2);
+        h_file.set_bit(rank + BitBoard::WIDTH - 1);
+    }
+    let not_files = NotFiles {
+        a: !a_file,
+        h: !h_file,
+        ab: !(a_file | b_file),
+        gh: !(g_file | h_file),
+    };
+
+    // mask leaper attacks and sliding occupancies
+    let mut pawn_attacks = vec![BitBoard::new(); 128];
+    let mut knight_attacks = vec![BitBoard::new(); 64];
+    let mut king_attacks = vec![BitBoard::new(); 64];
+
+    for i in 0..BitBoard::SIZE {
+        let index = i as usize;
+        let pawn_index = index * 2;
+        pawn_attacks[pawn_index + Constants::WHITE as usize] = mask_pawn_attacks(Constants::WHITE, i, &not_files);
+        pawn_attacks[pawn_index + Constants::BLACK as usize] = mask_pawn_attacks(Constants::BLACK, i, &not_files);
+        knight_attacks[index] = mask_knight_attacks(i, &not_files);
+        king_attacks[index] = mask_king_attacks(i, &not_files);
+    }
+
+    // relevant bits tables
+
+    let bishop_relevant_bits = vec![ 6, 5, 5, 5, 5, 5, 5, 6, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 7, 7, 7, 7, 5, 5, 5, 5, 7, 9, 9, 7, 5, 5, 5, 5, 7, 9, 9, 7, 5, 5, 5, 5, 7, 7, 7, 7, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 6, 5, 5, 5, 5, 5, 5, 6 ];
+
+        let rook_relevant_bits = vec![12, 11, 11, 11, 11, 11, 11, 12, 11, 10, 10, 10, 10, 10, 10, 11, 11, 10, 10, 10, 10, 10, 10, 11, 11, 10, 10, 10, 10, 10, 10, 11, 11, 10, 10, 10, 10, 10, 10, 11, 11, 10, 10, 10, 10, 10, 10, 11, 11, 10, 10, 10, 10, 10, 10, 11, 12, 11, 11, 11, 11, 11, 11, 12 ];
+
+    let mut random_state = 1804289383;
+
+    // initailize magic numbers
+
+    let mut bishop_magic_numbers = vec![BitBoard::new(); 64];
+    let mut rook_magic_numbers = vec![BitBoard::new(); 64];
+
+    println!("\nCalculating Rook Magic Numbers (0/64)");
+    for square in 0..64 {
+        let magic_number = find_magic_number(square, rook_relevant_bits[square as usize], Constants::ROOK, &mut random_state);
+        rook_magic_numbers[square as usize] = magic_number;
+        println!("Calculating Rook Magic Numbers ({}/64)", square + 1);
+    }
+
+    println!("\nCalculating Bishop Magic Numbers (0/64)");
+    for square in 0..64 {
+        let magic_number = find_magic_number(square, bishop_relevant_bits[square as usize], Constants::BISHOP, &mut random_state);
+        bishop_magic_numbers[square as usize] = magic_number;
+        println!("Calculating Bishop Magic Numbers ({}/64)", square + 1);
+    }
+    let mut bishop_masks = vec![BitBoard::new(); 64];
+    let mut rook_masks = vec![BitBoard::new(); 64];
+    let mut bishop_attacks = vec![vec![BitBoard::new(); 512]; 64];
+    let mut rook_attacks = vec![vec![BitBoard::new(); 4096]; 64];
+    init_sliders_attacks(Constants::BISHOP, &mut bishop_masks, &mut rook_masks, &mut bishop_attacks, &mut rook_attacks, &bishop_magic_numbers, &bishop_relevant_bits);
+    init_sliders_attacks(Constants::ROOK, &mut bishop_masks, &mut rook_masks, &mut bishop_attacks, &mut rook_attacks, &rook_magic_numbers, &rook_relevant_bits);
+
+    let bishop_attack_data = SlidingAttackData::new(bishop_attacks, bishop_magic_numbers, bishop_masks, bishop_relevant_bits);
+    let rook_attack_data = SlidingAttackData::new(rook_attacks, rook_magic_numbers, rook_masks, rook_relevant_bits);
+    let leaping_attack_data = LeapingAttackData {
+        pawn: pawn_attacks,
+        knight: knight_attacks,
+        king: king_attacks,
+    };
+    let all_move_data = AllMoveData {
+        bishop_attack_data: bishop_attack_data.clone(),
+        rook_attack_data: rook_attack_data.clone(),
+        leaping_attack_data,
+    };
+
+    //save data for the ai to use later
+    println!("Saving Results");
+    let json_data = serde_json::to_string(&all_move_data).unwrap();
+    let mut file = File::create(Constants::FILE_NAME).unwrap();
+    file.write_all(json_data.as_bytes()).unwrap();
+    println!("Results Saved to: {}", Constants::FILE_NAME);
+}
+
+fn init_sliders_attacks(piece: u8, bishop_masks: &mut Vec<BitBoard>, rook_masks: &mut Vec<BitBoard>, bishop_attacks: &mut Vec<Vec<BitBoard>>, rook_attacks: &mut Vec<Vec<BitBoard>>, magic_numbers: &Vec<BitBoard>, relevant_bits: &Vec<u8>) {
+    for square in 0..64 {
+        bishop_masks[square] = mask_sliding_occupancy(square as u8, Constants::BISHOP);
+        rook_masks[square] = mask_sliding_occupancy(square as u8, Constants::ROOK);
+
+        let attack_mask = if piece == Constants::BISHOP { bishop_masks[square] } else { rook_masks[square] };
+        let relevant_bits_count = attack_mask.count_bits();
+        let occupancy_indicies = 1 << relevant_bits_count;
+        for index in 0..occupancy_indicies {
+            let occupancy = set_occupancy(index, relevant_bits_count, &attack_mask);
+            if piece == Constants::BISHOP {
+                let magic_index: usize = ((occupancy * magic_numbers[square]) >> (64 - relevant_bits[square])).0 as usize;
+                bishop_attacks[square][magic_index] = mask_sliding_attacks(square as u8, piece, &occupancy);
+            }
+            if piece == Constants::ROOK {
+                let magic_index: usize = ((occupancy * magic_numbers[square]) >> (64 - relevant_bits[square])).0 as usize;
+                rook_attacks[square][magic_index] = mask_sliding_attacks(square as u8, piece, &occupancy);
+            }
+        }
+    }
+}
+
+fn get_random_number(state: &mut u32) -> u32 {
+    let mut number = *state;
+    number ^= number << 13;
+    number ^= number >> 17;
+    number ^= number << 5;
+    *state = number;
+    number
+}
+
+fn get_magic_candidate_part(state: &mut u32) -> u64 {
+    let n1 = (get_random_number(state) & 0xFFFF) as u64;
+    let n2 = (get_random_number(state) & 0xFFFF) as u64;
+    let n3 = (get_random_number(state) & 0xFFFF) as u64;
+    let n4 = (get_random_number(state) & 0xFFFF) as u64;
+
+    n1 | (n2 << 16) | (n3 << 32) | (n4 << 48)
+}
+
+fn generate_magic_candidate(state: &mut u32) -> BitBoard {
+    BitBoard(get_magic_candidate_part(state) & get_magic_candidate_part(state) & get_magic_candidate_part(state))
+}
+
+fn find_magic_number(square: u8, relevant_bits: u8, piece: u8, state: &mut u32) -> BitBoard {
+    let mut occupancies = vec![BitBoard::new(); 4096];
+    let mut attacks = vec![BitBoard::new(); 4096];
+    let attack_mask = mask_sliding_occupancy(square, piece);
+    let occupancy_indicies = BitBoard(1 << relevant_bits);
+
+    for i in 0..occupancy_indicies.0 {
+        let index = i as usize;
+        occupancies[index] = set_occupancy(i, relevant_bits, &attack_mask);
+        attacks[index] = mask_sliding_attacks(square, piece, &occupancies[index]);
+    }
+
+    for _ in 0..100000000 {
+        let magic_number = generate_magic_candidate(state);
+        if ((attack_mask * magic_number) & BitBoard(0xFF00000000000000)).count_bits() < 6 { continue; }
+
+        let mut used_attacks = vec![BitBoard::new(); 4096];
+        let mut fail = false;
+        for index in 0..occupancy_indicies.0 {
+            let magic_index = ((occupancies[index as usize] * magic_number) >> (64 - relevant_bits)).0 as usize;
+            if !used_attacks[magic_index].not_zero() {
+                used_attacks[magic_index] = attacks[index as usize];
+            }
+            else if used_attacks[magic_index].0 != attacks[index as usize].0 {
+                fail = true;
+                break;
+            }
+        }
+        if !fail {
+            return magic_number;
+        }
+    }
+
+    panic!("magic number failed!: {}", square);
+}
+
+fn mask_pawn_attacks(side: u8, index: u8, not_files: &NotFiles) -> BitBoard {
+    let mut attacks = BitBoard::new();
+    let mut piece_position = BitBoard::new();
+    piece_position.set_bit(index);
+
+    if side == Constants::WHITE {
+        if ((piece_position >> 7) & not_files.a).not_zero() { attacks |= piece_position >> 7; }; 
+        if ((piece_position >> 9) & not_files.h).not_zero() { attacks |= piece_position >> 9; };
+    }
+    else {
+
+        if ((piece_position << 7) & not_files.h).not_zero() { attacks |= piece_position << 7; }; 
+        if ((piece_position << 9) & not_files.a).not_zero() { attacks |= piece_position << 9; };
+    }
+
+    attacks
+}
+
+fn mask_knight_attacks(index: u8, not_files: &NotFiles) -> BitBoard {
+    let mut attacks = BitBoard::new();
+    let mut piece_position = BitBoard::new();
+    piece_position.set_bit(index);
+
+    if ((piece_position >> 17) & not_files.h ).not_zero() { attacks |= piece_position >> 17; };
+    if ((piece_position >> 15) & not_files.a ).not_zero() { attacks |= piece_position >> 15; };
+    if ((piece_position >> 10) & not_files.gh).not_zero() { attacks |= piece_position >> 10; };
+    if ((piece_position >> 6 ) & not_files.ab).not_zero() { attacks |= piece_position >> 6 ; };
+    if ((piece_position << 17) & not_files.a ).not_zero() { attacks |= piece_position << 17; };
+    if ((piece_position << 15) & not_files.h ).not_zero() { attacks |= piece_position << 15; };
+    if ((piece_position << 10) & not_files.ab).not_zero() { attacks |= piece_position << 10; };
+    if ((piece_position << 6 ) & not_files.gh).not_zero() { attacks |= piece_position << 6 ; };
+
+    attacks
+}
+
+fn mask_king_attacks(index: u8, not_files: &NotFiles) -> BitBoard {
+    let mut attacks = BitBoard::new();
+    let mut piece_position = BitBoard::new();
+    piece_position.set_bit(index);
+
+    if (piece_position >> 8).not_zero() { attacks |= piece_position >> 8 };
+    if ((piece_position >> 9) & not_files.h).not_zero() { attacks |= piece_position >> 9 };
+    if ((piece_position >> 7) & not_files.a).not_zero() { attacks |= piece_position >> 7 };
+    if ((piece_position >> 1) & not_files.h).not_zero() { attacks |= piece_position >> 1 };
+    if (piece_position << 8).not_zero() { attacks |= piece_position << 8 };
+    if ((piece_position << 9) & not_files.a).not_zero() { attacks |= piece_position << 9 };
+    if ((piece_position << 7) & not_files.h).not_zero() { attacks |= piece_position << 7 };
+    if ((piece_position << 1) & not_files.a).not_zero() { attacks |= piece_position << 1 };
+
+    attacks
+}
+
+fn mask_sliding_occupancy(index: u8, piece: u8) -> BitBoard {
+    let mut occupancy = BitBoard::new();
+    let start_file = index as i8 % 8;
+    let start_rank = index as i8 / 8;
+
+    let (file_dir, rank_dir) = 
+    if piece == Constants::BISHOP {
+        (1, 1)
+    }
+    else if piece == Constants::ROOK {
+        (1, 0)
+    }
+    else {
+        panic!("invalid piece passed to fn mask_sliding_occupancy");
+    };
+    
+    
+    occupancy |= mask_occupancy_in_direction(start_file, start_rank, file_dir, rank_dir);
+    occupancy |= mask_occupancy_in_direction(start_file, start_rank, -file_dir, -rank_dir);
+    occupancy |= mask_occupancy_in_direction(start_file, start_rank, -rank_dir, file_dir);
+    occupancy |= mask_occupancy_in_direction(start_file, start_rank, rank_dir, -file_dir);
+    occupancy
+}
+
+fn mask_occupancy_in_direction(start_file: i8, start_rank: i8, file_dir: i8, rank_dir: i8) -> BitBoard {
+    let mut occupancy = BitBoard::new();
+
+    let mut file = start_file + file_dir;
+    let mut rank = start_rank + rank_dir;
+    while if file_dir == 0 { true } else { file >= 1 && file <= 6 } && if rank_dir == 0 { true } else { rank >= 1 && rank <= 6 } {
+        let index = (rank as u8 * 8) + file as u8;
+        occupancy.set_bit(index);
+        file += file_dir;
+        rank += rank_dir;
+    }
+
+    occupancy
+}
+
+fn mask_sliding_attacks(index: u8, piece: u8, blocking: &BitBoard) -> BitBoard {
+    let mut attacks = BitBoard::new();
+    let start_file = index as i8 % 8;
+    let start_rank = index as i8 / 8;
+
+    let (file_dir, rank_dir) = 
+    if piece == Constants::BISHOP {
+        (1, 1)
+    }
+    else if piece == Constants::ROOK {
+        (1, 0)
+    }
+    else {
+        panic!("invalid piece passed to fn mask_sliding_occupancy");
+    };
+
+    attacks |= mask_attacks_in_direction(start_file, start_rank, file_dir, rank_dir, blocking);
+    attacks |= mask_attacks_in_direction(start_file, start_rank, -file_dir, -rank_dir, blocking);
+    attacks |= mask_attacks_in_direction(start_file, start_rank, -rank_dir, file_dir, blocking);
+    attacks |= mask_attacks_in_direction(start_file, start_rank, rank_dir, -file_dir, blocking);
+
+    attacks
+}
+
+fn mask_attacks_in_direction(start_file: i8, start_rank: i8, file_dir: i8, rank_dir: i8, blocking: &BitBoard) -> BitBoard {
+    let mut attacks = BitBoard::new();
+
+    let mut file = start_file + file_dir;
+    let mut rank = start_rank + rank_dir;
+    while file >= 0 && rank >= 0 && file <= 7 && rank <= 7 {
+        let index = (rank as u8 * 8) + file as u8;
+        let mut attack_position = BitBoard::new();
+        attack_position.set_bit(index);
+        attacks |= attack_position;
+        if (attack_position & *blocking).not_zero() { break; }
+        file += file_dir;
+        rank += rank_dir;
+    }
+
+    attacks
+}
+
+fn set_occupancy(index: u64, bits_in_mask: u8, attack_mask: &BitBoard) -> BitBoard {
+    let mut attack_mask = BitBoard(attack_mask.0);
+    let mut occupancy = BitBoard::new();
+    for count in 0..bits_in_mask {
+        let square = attack_mask.ls1b_index();
+
+        let square = match square {
+            None => panic!("no lsb1 index"),
+            Some(s) => s,
+        };
+        
+        attack_mask.pop_bit(square);
+        if (BitBoard(index as u64 & (1 << count as u64))).not_zero() {
+            occupancy |= BitBoard(1 << square as u64);
+        }
+    }
+    occupancy
+}
