@@ -167,9 +167,10 @@ impl SlidingAttackData {
 
 #[derive(Serialize, Deserialize)]
 pub struct LeapingAttackData {
-    pub pawn: Vec<BitBoard>,
+    pub pawn_attacks: Vec<Vec<BitBoard>>,
     pub knight: Vec<BitBoard>,
     pub king: Vec<BitBoard>,
+	pub pawn_moves: Vec<Vec<BitBoard>>,
 }
 
 #[derive(Serialize, Deserialize)]

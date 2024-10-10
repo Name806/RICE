@@ -35,15 +35,26 @@ fn main() {
     };
 
     // mask leaper attacks and sliding occupancies
-    let mut pawn_attacks = vec![BitBoard::new(); 128];
+    let mut pawn_attacks = vec![vec![BitBoard::new(); 64]; 2];
     let mut knight_attacks = vec![BitBoard::new(); 64];
     let mut king_attacks = vec![BitBoard::new(); 64];
+	let mut pawn_moves = vec![vec![BitBoard::new(); 64]; 2];
+	
+	let mut white_pawn_starting_file = BitBoard::new();
+	let mut black_pawn_starting_file = BitBoard::new();
+	
+	for i in 0..8 {
+		black_pawn_starting_file.set_bit(8 + i);
+		white_pawn_starting_file.set_bit(48 + i);
+	}
 
     for i in 0..BitBoard::SIZE {
         let index = i as usize;
-        let pawn_index = index * 2;
-        pawn_attacks[pawn_index + Constants::WHITE as usize] = mask_pawn_attacks(Constants::WHITE, i, &not_files);
-        pawn_attacks[pawn_index + Constants::BLACK as usize] = mask_pawn_attacks(Constants::BLACK, i, &not_files);
+        pawn_attacks[Constants::WHITE as usize][index] = mask_pawn_attacks(Constants::WHITE, i, &not_files);
+        pawn_attacks[Constants::BLACK as usize][index] = mask_pawn_attacks(Constants::BLACK, i, &not_files);
+		pawn_moves[Constants::WHITE as usize][index] = mask_pawn_moves(Constants::WHITE, i, white_pawn_starting_file, black_pawn_starting_file);
+		pawn_moves[Constants::BLACK as usize][index] = mask_pawn_moves(Constants::BLACK, i, white_pawn_starting_file, black_pawn_starting_file);
+
         knight_attacks[index] = mask_knight_attacks(i, &not_files);
         king_attacks[index] = mask_king_attacks(i, &not_files);
     }
@@ -84,7 +95,8 @@ fn main() {
     let bishop_attack_data = SlidingAttackData::new(bishop_attacks, bishop_magic_numbers, bishop_masks, bishop_relevant_bits);
     let rook_attack_data = SlidingAttackData::new(rook_attacks, rook_magic_numbers, rook_masks, rook_relevant_bits);
     let leaping_attack_data = LeapingAttackData {
-        pawn: pawn_attacks,
+        pawn_attacks,
+		pawn_moves,
         knight: knight_attacks,
         king: king_attacks,
     };
@@ -100,6 +112,25 @@ fn main() {
     let mut file = File::create(Constants::FILE_NAME).unwrap();
     file.write_all(json_data.as_bytes()).unwrap();
     println!("Results Saved to: {}", Constants::FILE_NAME);
+}
+
+fn mask_pawn_moves(side: u8, square: u8, white_pawn_starting_file: BitBoard, black_pawn_starting_file: BitBoard) -> BitBoard {
+	let mut position = BitBoard::new();
+	position.set_bit(square);
+	let mut moves = BitBoard::new();
+	if side == Constants::WHITE {
+		moves |= position << 8;
+		if (position & white_pawn_starting_file).not_zero() {
+			moves |= position << 16;
+		}
+	}
+	else if side == Constants::BLACK {
+		moves |= position >> 8;
+		if (position & black_pawn_starting_file).not_zero() {
+			moves |= position >> 16;
+		}
+	}
+	moves
 }
 
 fn init_sliders_attacks(piece: u8, bishop_masks: &mut Vec<BitBoard>, rook_masks: &mut Vec<BitBoard>, bishop_attacks: &mut Vec<Vec<BitBoard>>, rook_attacks: &mut Vec<Vec<BitBoard>>, magic_numbers: &Vec<BitBoard>, relevant_bits: &Vec<u8>) {
