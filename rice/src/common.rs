@@ -186,16 +186,16 @@ pub struct AllMoveData {
 }
 
 pub enum Pieces {
+    KING,
     PAWN,
     KNIGHT,
     BISHOP,
     ROOK,
     QUEEN,
-    KING,
 }
 
 impl Pieces {
-    pub fn int_to_piece(i: i8) -> Self {
+    pub fn int_to_piece(i: u8) -> Self {
         match i {
             0 => Pieces::PAWN,
             1 => Pieces::KNIGHT,
@@ -226,7 +226,7 @@ impl ops::Not for Color {
 }
 
 impl AllMoveData {
-    pub fn get_attacks(&self, square: u8, piece: Pieces, side: Color, occupancy: &BitBoard) -> BitBoard {
+    pub fn get_attacks(&self, square: u8, piece: &Pieces, side: Color, occupancy: &BitBoard) -> BitBoard {
         match piece {
             Pieces::PAWN => self.leaping_attack_data.pawn_attacks[side as usize][square as usize],
             Pieces::KNIGHT => self.leaping_attack_data.knight[square as usize],
@@ -241,6 +241,7 @@ impl AllMoveData {
         }
     }
 
-    pub fn get_pawn_moves() {
+    pub fn get_pawn_moves(&self, square: u8, side: Color) -> BitBoard {
+        self.leaping_attack_data.pawn_moves[side as usize][square as usize]
     }
 }
