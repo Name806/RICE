@@ -29,6 +29,11 @@ impl BitBoard {
         let trailing_bits = (*self & -*self) - 1;
         Some(trailing_bits.count_bits())
     }
+    pub fn pop_ls1b(&mut self) -> Option<u8> {
+        let index = self.ls1b_index()?;
+        self.pop_bit(index);
+        Some(index)
+    }
 
     pub const SIZE: u8 = 64;
     pub const WIDTH: u8 = 8;
@@ -170,12 +175,72 @@ pub struct LeapingAttackData {
     pub pawn_attacks: Vec<Vec<BitBoard>>,
     pub knight: Vec<BitBoard>,
     pub king: Vec<BitBoard>,
-	pub pawn_moves: Vec<Vec<BitBoard>>,
+    pub pawn_moves: Vec<Vec<BitBoard>>,
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct AllMoveData {
-    pub bishop_attack_data: SlidingAttackData,
-    pub rook_attack_data: SlidingAttackData,
-    pub leaping_attack_data: LeapingAttackData,
+    bishop_attack_data: SlidingAttackData,
+    rook_attack_data: SlidingAttackData,
+    leaping_attack_data: LeapingAttackData,
+}
+
+pub enum Pieces {
+    PAWN,
+    KNIGHT,
+    BISHOP,
+    ROOK,
+    QUEEN,
+    KING,
+}
+
+impl Pieces {
+    pub fn int_to_piece(i: i8) -> Self {
+        match i {
+            0 => Pieces::PAWN,
+            1 => Pieces::KNIGHT,
+            2 => Pieces::BISHOP,
+            3 => Pieces::ROOK,
+            4 => Pieces::QUEEN,
+            5 => Pieces::KING,
+            _ => panic!("cannot parse int to piece"),
+        }
+    }
+}
+
+#[derive(Copy, Clone)]
+pub enum Color {
+    WHITE,
+    BLACK,
+}
+
+impl ops::Not for Color {
+    type Output = Self;
+    fn not(self) -> Self::Output {
+        match self {
+            Color::WHITE => Color::BLACK,
+            Color::BLACK => Color::WHITE,
+        }
+    }
+
+}
+
+impl AllMoveData {
+    pub fn get_attacks(&self, square: u8, piece: Pieces, side: Color, occupancy: &BitBoard) -> BitBoard {
+        match piece {
+            Pieces::PAWN => self.leaping_attack_data.pawn_attacks[side as usize][square as usize],
+            Pieces::KNIGHT => self.leaping_attack_data.knight[square as usize],
+            Pieces::BISHOP => self.bishop_attack_data.get_attack(square, occupancy),
+            Pieces::ROOK => self.rook_attack_data.get_attack(square, occupancy),
+            Pieces::KING => self.leaping_attack_data.king[square as usize],
+            Pieces::QUEEN => {
+                let bishop_attack = self.bishop_attack_data.get_attack(square, occupancy);
+                let rook_attack =  self.rook_attack_data.get_attack(square, occupancy);
+                bishop_attack | rook_attack
+            },
+        }
+    }
+
+    pub fn get_pawn_moves() {
+    }
 }
