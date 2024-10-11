@@ -53,12 +53,13 @@ struct Move {
     castle: bool,
     check: bool,
     checkmate: bool,
+    draw: bool,
 }
 
 
 impl Move {
     const NONE: u32 = 1111;
-    const BIT_COUNTS: [u8; 9] = [6, 12, 10, 14, 18, 19, 20, 21, 22];
+    const BIT_COUNTS: [u8; 10] = [6, 12, 10, 14, 18, 19, 20, 21, 22, 23];
     fn encode(self) -> EncodedMove {
         let mut move_code = 0_u32;
 
@@ -87,6 +88,7 @@ impl Move {
         move_code |= (self.castle as u32) << Move::BIT_COUNTS[6];
         move_code |= (self.check as u32) << Move::BIT_COUNTS[7];
         move_code |= (self.checkmate as u32) << Move::BIT_COUNTS[8];
+        move_code |= (self.draw as u32) << Move::BIT_COUNTS[9];
         EncodedMove(move_code)
     }
 }
@@ -115,7 +117,8 @@ impl EncodedMove {
         let en_passant =     (self.0 & 0b00000010000000000000000000000000) >> Move::BIT_COUNTS[5] != 0;
         let castle =         (self.0 & 0b00000100000000000000000000000000) >> Move::BIT_COUNTS[6] != 0;
         let check =          (self.0 & 0b00001000000000000000000000000000) >> Move::BIT_COUNTS[7] != 0;
-        let checkmate =      (self.0 & 0b00010000000000000000000000000000) >> Move::BIT_COUNTS[0] != 0;
+        let checkmate =      (self.0 & 0b00010000000000000000000000000000) >> Move::BIT_COUNTS[8] != 0;
+        let draw =           (self.0 & 0b00100000000000000000000000000000) >> Move::BIT_COUNTS[9] != 0;
         Move {
             source_square,
             target_square,
@@ -127,6 +130,7 @@ impl EncodedMove {
             castle,
             check,
             checkmate,
+            draw,
         }
     }
 }
