@@ -257,26 +257,53 @@ impl Game {
 		}
     }
 	
-	fn board_to_moves(&self, source_square: u8, target_squares: &BitBoard, piece_moved: Pieces, move_data: &AllMoveData) {
+	fn board_to_moves(&self, source_square: u8, target_squares: &BitBoard, piece_moved: Pieces, en_passant: bool, double_push: bool, castle: bool, move_data: &AllMoveData) -> Vec<EncodedMove> {
 		let mut moves: Vec<EncodedMove> = Vec::new();
 		let mut target_squares = target_squares.clone();
 		while target_squares.not_zero() {
-			let target_square = target_squares.pop_ls1b();
+			let target_square = target_squares.pop_ls1b().expect("target_squares not zero");
 			let mut target_position = BitBoard::new();
 			target_position.set_bit(target_square);
-			let capture: Option<Pieces> = None;
+			let mut capture: Option<Pieces> = None;
+			if en_passant {
+				capture = Some(Pieces::PAWN);
+			}
 			for piece in 0..6 {
 				if (self.piece_positions[!self.side as usize][piece] & target_position).not_zero() {
-					capture = Some(Pieces::int_to_piece(piece));
+					capture = Some(Pieces::int_to_piece(piece as u8));
 					break;
+				}
+			}
+			if piece_moved.clone() == Pieces::PAWN {
+				if (target_position & move_data.get_promotion_ranks(self.side)).not_zero() {
+					const promotion_options: [Pieces; 4] = [Pieces::QUEEN, Pieces::BISHOP, Pieces::ROOK, Pieces::KNIGHT];
+					for promoted_piece in promotion_options {
+						moves.push(Move {
+							source_square,
+							target_square,
+							piece_moved: piece_moved.clone(),
+							capture,
+							promoted_piece: Some(promoted_piece),
+							en_passant,
+							double_push,
+							castle,
+						}.encode());
+					}
+					return moves;
 				}
 			}
 			moves.push(Move {
 				source_square,
 				target_square,
 				piece_moved,
+				capture,
+				promoted_piece: None,
+				en_passant,
+				double_push,
+				castle,
 			}.encode());
 		}
+		moves
 	}
 }
 

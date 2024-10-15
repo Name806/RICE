@@ -186,6 +186,7 @@ pub struct AllMoveData {
 	promotion_ranks: Vec<BitBoard>,
 }
 
+#[derive(PartialEq, Copy, Clone)]
 pub enum Pieces {
     KING,
     PAWN,
