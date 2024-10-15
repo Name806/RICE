@@ -5,6 +5,7 @@ use common::SlidingAttackData;
 use common::LeapingAttackData;
 use common::AllMoveData;
 use std::{fs::File, io::Write};
+use common::Color;
 
 struct NotFiles {
     a: BitBoard,
@@ -100,11 +101,12 @@ fn main() {
         knight: knight_attacks,
         king: king_attacks,
     };
-    let all_move_data = AllMoveData {
-        bishop_attack_data: bishop_attack_data.clone(),
-        rook_attack_data: rook_attack_data.clone(),
-        leaping_attack_data,
-    };
+	let mut promotion_ranks = vec![BitBoard::new(); 2];
+	for i in 0..8 {
+		promotion_ranks[Color::WHITE as usize].set_bit(i);
+		promotion_ranks[Color::BLACK as usize].set_bit(i + 56);
+	}
+	let all_move_data = AllMoveData::new(bishop_attack_data, rook_attack_data, leaping_attack_data, promotion_ranks);
 
     //save data for the ai to use later
     println!("Saving Results");

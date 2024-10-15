@@ -240,9 +240,44 @@ impl Game {
 
         let king_square = king_position.ls1b_index().expect("King not found!");
 		let mut king_attacks = move_data.get_attacks(king_square, &Pieces::KING, self.side, &both_occupancy);
+		king_attacks &= !self.occupancies[side_to_move];
 		let without_king_occupancy = both_occupancy & !king_position;
 		let king_danger_squares = self.get_attacked_squares(!self.side, move_data, &without_king_occupancy);
+		king_attacks |= !king_danger_squares;
+		
+		let mut checking_pieces = BitBoard::new();
+		for piece in 0..6 {
+			let attacks_from_king = move_data.get_attacks(king_square, &Pieces::int_to_piece(piece), !self.side, &both_occupancy);
+			checking_pieces |= self.piece_positions[!self.side as usize][piece as usize] & attacks_from_king;
+		}
+		
+		let num_checking = checking_pieces.count_bits();
+		if num_checking > 1 {
+			
+		}
     }
+	
+	fn board_to_moves(&self, source_square: u8, target_squares: &BitBoard, piece_moved: Pieces, move_data: &AllMoveData) {
+		let mut moves: Vec<EncodedMove> = Vec::new();
+		let mut target_squares = target_squares.clone();
+		while target_squares.not_zero() {
+			let target_square = target_squares.pop_ls1b();
+			let mut target_position = BitBoard::new();
+			target_position.set_bit(target_square);
+			let capture: Option<Pieces> = None;
+			for piece in 0..6 {
+				if (self.piece_positions[!self.side as usize][piece] & target_position).not_zero() {
+					capture = Some(Pieces::int_to_piece(piece));
+					break;
+				}
+			}
+			moves.push(Move {
+				source_square,
+				target_square,
+				piece_moved,
+			}.encode());
+		}
+	}
 }
 
 const starting_fen: &'static str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 0";

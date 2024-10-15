@@ -183,6 +183,7 @@ pub struct AllMoveData {
     bishop_attack_data: SlidingAttackData,
     rook_attack_data: SlidingAttackData,
     leaping_attack_data: LeapingAttackData,
+	promotion_ranks: Vec<BitBoard>,
 }
 
 pub enum Pieces {
@@ -244,4 +245,17 @@ impl AllMoveData {
     pub fn get_pawn_moves(&self, square: u8, side: Color) -> BitBoard {
         self.leaping_attack_data.pawn_moves[side as usize][square as usize]
     }
+	
+	pub fn get_promotion_ranks(&self, side: Color) -> BitBoard {
+		self.promotion_ranks[side as usize]
+	}
+	
+	pub fn new(bishop_attack_data: SlidingAttackData, rook_attack_data: SlidingAttackData, leaping_attack_data: LeapingAttackData, promotion_ranks: Vec<BitBoard>) -> Self {
+		Self {
+			bishop_attack_data,
+			rook_attack_data,
+			leaping_attack_data,
+			promotion_ranks,
+		}
+	}
 }
