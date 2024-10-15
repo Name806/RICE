@@ -235,40 +235,13 @@ impl Game {
 
     fn get_moves(&self, move_data: &AllMoveData) {
         let side_to_move = self.side as usize;
-        for piece in 0..6 {
-            let p = Pieces::int_to_piece(piece);
-            let mut pieces = self.piece_positions[side_to_move][piece as usize];
-            while pieces.not_zero() {
-                let square = pieces.pop_ls1b().unwrap();
-                let mut attacks = move_data.get_attacks(square, &p, self.side, &self.occupancies[BOTH_OCCUPANCIES]);
-                attacks &= !self.occupancies[side_to_move];
-                if piece == Pieces::PAWN as u8 {
-                    let mut first_pawn_move = BitBoard::new();
-                    let first_pawn_move_index = (square - 8) + (16 * self.side as u8);
-                    first_pawn_move.set_bit(first_pawn_move_index);
-                    if !(first_pawn_move & self.occupancies[BOTH_OCCUPANCIES]).not_zero() {
+		let both_occupancy = self.occupancies[BOTH_OCCUPANCIES];
+		let king_position = self.piece_positions[side_to_move][Pieces::KING as usize];
 
-                        let mut pawn_moves = move_data.get_pawn_moves(square, self.side);
-                        pawn_moves &= !self.occupancies[BOTH_OCCUPANCIES];
-                        attacks |= pawn_moves;
-                    }
-                }
-                if piece == Pieces::KING as u8 {
-                    let mut without_king_occupancy = self.occupancies[BOTH_OCCUPANCIES];
-                    without_king_occupancy.pop_bit(square);
-                    let mut attacked_squares = self.get_attacked_squares(!self.side, move_data, &without_king_occupancy);
-                    attacks &= !attacked_squares;
-
-                    let mut attackers = BitBoard::new();
-                    for attacking_piece in 0..6 {
-                        let ap = Pieces::int_to_piece(attacking_piece);
-                        attackers |= move_data.get_attacks(square, &ap, !self.side, &self.occupancies[BOTH_OCCUPANCIES]) & self.piece_positions[!self.side as usize][attacking_piece as usize];
-                    }
-
-                    let num_attackers = attackers.count_bits();
-                }
-            }
-        }
+        let king_square = king_position.ls1b_index().expect("King not found!");
+		let mut king_attacks = move_data.get_attacks(king_square, &Pieces::KING, self.side, &both_occupancy);
+		let without_king_occupancy = both_occupancy & !king_position;
+		let king_danger_squares = self.get_attacked_squares(!self.side, move_data, &without_king_occupancy);
     }
 }
 
