@@ -1,6 +1,34 @@
 use std::{ops, cmp};
 use serde::{Serialize, Deserialize};
 
+pub fn direction_to_index(file: i8, rank: i8) -> usize {
+    match (file, rank) {
+        (1, 0) => 0, // right
+        (1, 1) => 1, // right-down
+        (0, 1) => 2, // down
+        (-1, 1) => 3, // left-down
+        (-1, 0) => 4, // left
+        (-1, -1) => 5, // left-up
+        (0, -1) => 6, // up
+        (1, -1) => 7, // right-up
+        _ => panic!("invalid direction"),
+    }
+}
+
+pub fn index_to_direction(index: usize) -> (i8, i8) {
+    match index {
+        0 => (1, 0),
+        1 => (1, 1),
+        2 => (0, 1),
+        3 => (-1, 1),
+        4 => (-1, 0),
+        5 => (-1, -1),
+        6 => (0, -1),
+        7 => (1, -1),
+        _ => panic!("index out of range: {}", index),
+    }
+}
+
 #[derive(Copy, Clone, cmp::PartialEq, Serialize, Deserialize)]
 pub struct BitBoard(pub u64);
 
@@ -184,9 +212,10 @@ pub struct AllMoveData {
     rook_attack_data: SlidingAttackData,
     leaping_attack_data: LeapingAttackData,
 	promotion_ranks: Vec<BitBoard>,
+    directions: Vec<Vec<BitBoard>>,
 }
 
-#[derive(PartialEq, Copy, Clone)]
+#[derive(Copy, Clone, PartialEq)]
 pub enum Pieces {
     KING,
     PAWN,
@@ -250,13 +279,37 @@ impl AllMoveData {
 	pub fn get_promotion_ranks(&self, side: Color) -> BitBoard {
 		self.promotion_ranks[side as usize]
 	}
+
+    pub fn get_direction(&self, square: u8, file_dir: i8, rank_dir: i8) -> BitBoard {
+        self.directions[direction_to_index(file_dir, rank_dir)][square as usize]
+    }
+
+    pub fn squares_between(&self, s1: u8, s2: u8) -> BitBoard {
+        let file1 = s1 % 8;
+        let file2 = s2 % 8;
+        let rank1 = s1 / 8;
+        let rank2 = s2 / 8;
+
+        let file_dir = if file1 > file2 { -1 }
+        else if file1 < file2 { 1 }
+        else { 0 };
+
+        let rank_dir = if rank1 > rank2 { -1 }
+        else if file1 < file2 { 1 }
+        else { 0 };
+
+        let dir1 = self.get_direction(s1, file_dir, rank_dir);
+        let dir2 = self.get_direction(s2, -file_dir, -rank_dir);
+        dir1 & dir2
+    }
 	
-	pub fn new(bishop_attack_data: SlidingAttackData, rook_attack_data: SlidingAttackData, leaping_attack_data: LeapingAttackData, promotion_ranks: Vec<BitBoard>) -> Self {
+	pub fn new(bishop_attack_data: SlidingAttackData, rook_attack_data: SlidingAttackData, leaping_attack_data: LeapingAttackData, promotion_ranks: Vec<BitBoard>, directions: Vec<Vec<BitBoard>>) -> Self {
 		Self {
 			bishop_attack_data,
 			rook_attack_data,
 			leaping_attack_data,
 			promotion_ranks,
+            directions,
 		}
 	}
 }

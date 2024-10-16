@@ -106,7 +106,16 @@ fn main() {
 		promotion_ranks[Color::WHITE as usize].set_bit(i);
 		promotion_ranks[Color::BLACK as usize].set_bit(i + 56);
 	}
-	let all_move_data = AllMoveData::new(bishop_attack_data, rook_attack_data, leaping_attack_data, promotion_ranks);
+
+    let mut directions = vec![vec![BitBoard::new(); 64]; 8];
+    for i in 0..7 {
+        let (file_dir, rank_dir) = common::index_to_direction(i);
+        for square in 0..64 {
+            directions[i][square as usize] = squares_in_direction(square, file_dir, rank_dir);
+        }
+    }
+
+	let all_move_data = AllMoveData::new(bishop_attack_data, rook_attack_data, leaping_attack_data, promotion_ranks, directions);
 
     //save data for the ai to use later
     println!("Saving Results");
@@ -114,6 +123,19 @@ fn main() {
     let mut file = File::create(Constants::FILE_NAME).unwrap();
     file.write_all(json_data.as_bytes()).unwrap();
     println!("Results Saved to: {}", Constants::FILE_NAME);
+}
+
+fn squares_in_direction(square: u8, file_dir: i8, rank_dir: i8) -> BitBoard {
+    let mut result = BitBoard::new();
+    let mut file = (square as i8 % 8) + file_dir;
+    let mut rank = (square as i8 / 8) + rank_dir;
+    while file >= 0 && file < 8 && rank >= 0 && rank < 8 {
+        let index = (rank * 8) + file;
+        result.set_bit(index as u8);
+        file += file_dir;
+        rank += rank_dir;
+    }
+    result
 }
 
 fn mask_pawn_moves(side: u8, square: u8, white_pawn_starting_file: BitBoard, black_pawn_starting_file: BitBoard) -> BitBoard {

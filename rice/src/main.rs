@@ -263,9 +263,10 @@ impl Game {
         let mut block_mask = BitBoard(0xFFFFFFFFFFFFFFFF);
         if num_checking == 1 {
             capture_mask = checking_pieces;
-            let checker_square = checking_pieces.ls1b_index();
+            let checker_square = checking_pieces.ls1b_index().expect("checking_pieces should not be empty");
             if (checking_pieces & self.piece_positions[!self.side as usize][Pieces::QUEEN as usize]).not_zero() || (checking_pieces & self.piece_positions[!self.side as usize][Pieces::BISHOP as usize]).not_zero() || (checking_pieces & self.piece_positions[!self.side as usize][Pieces::ROOK as usize]).not_zero() {
                 // push mask = squares between king and attacker
+                block_mask = move_data.squares_between(king_square, checker_square);
             }
             else {
                 block_mask = BitBoard::new();
