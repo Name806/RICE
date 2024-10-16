@@ -302,6 +302,10 @@ impl Game {
         }
         moves
     }
+
+    fn calculate_pinned_moves(&self, pinning_positions: &BitBoard, piece_type: Pieces) -> Vec<EncodedMove> {
+
+    }
 	
 	fn board_to_moves(&self, source_square: u8, target_squares: &BitBoard, piece_moved: Pieces, en_passant: bool, double_push: bool, castle: bool, move_data: &AllMoveData) -> Vec<EncodedMove> {
 		let mut moves: Vec<EncodedMove> = Vec::new();
