@@ -233,7 +233,9 @@ impl Game {
         attacked
     }
 
-    fn get_moves(&self, move_data: &AllMoveData) {
+    fn get_moves(&self, move_data: &AllMoveData) -> Vec<EncodedMove> {
+        let mut moves = Vec::new();
+
         let side_to_move = self.side as usize;
 		let both_occupancy = self.occupancies[BOTH_OCCUPANCIES];
 		let king_position = self.piece_positions[side_to_move][Pieces::KING as usize];
@@ -252,9 +254,24 @@ impl Game {
 		}
 		
 		let num_checking = checking_pieces.count_bits();
+
+        moves.extend(self.board_to_moves(king_square, &king_attacks, Pieces::KING, false, false, false, &move_data));
 		if num_checking > 1 {
-			
+			return moves;
 		}
+        let mut capture_mask = BitBoard(0xFFFFFFFFFFFFFFFF);
+        let mut block_mask = BitBoard(0xFFFFFFFFFFFFFFFF);
+        if num_checking == 1 {
+            capture_mask = checking_pieces;
+            let checker_square = checking_pieces.ls1b_index();
+            if (checking_pieces & self.piece_positions[!self.side as usize][Pieces::QUEEN as usize]).not_zero() || (checking_pieces & self.piece_positions[!self.side as usize][Pieces::BISHOP as usize]).not_zero() || (checking_pieces & self.piece_positions[!self.side as usize][Pieces::ROOK as usize]).not_zero() {
+                // push mask = squares between king and attacker
+            }
+            else {
+                block_mask = BitBoard::new();
+            }
+        }
+        moves
     }
 	
 	fn board_to_moves(&self, source_square: u8, target_squares: &BitBoard, piece_moved: Pieces, en_passant: bool, double_push: bool, castle: bool, move_data: &AllMoveData) -> Vec<EncodedMove> {
