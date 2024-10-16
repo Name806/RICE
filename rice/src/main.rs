@@ -249,6 +249,7 @@ impl Game {
 		
 		let mut checking_pieces = BitBoard::new();
 		for piece in 0..6 {
+            if piece == Pieces::KING as u8 { continue; }
 			let attacks_from_king = move_data.get_attacks(king_square, &Pieces::int_to_piece(piece), !self.side, &both_occupancy);
 			checking_pieces |= self.piece_positions[!self.side as usize][piece as usize] & attacks_from_king;
 		}
@@ -271,6 +272,33 @@ impl Game {
             else {
                 block_mask = BitBoard::new();
             }
+        }
+
+        let queen_attacks_from_king = move_data.get_attacks(king_square, &Pieces::QUEEN, self.side, &both_occupancy);
+
+        let mut bishop_positions = self.piece_positions[!self.side as usize][Pieces::BISHOP as usize];
+        let mut rook_positions = self.piece_positions[!self.side as usize][Pieces::ROOK as usize];
+        let mut queen_positions = self.piece_positions[!self.side as usize][Pieces::QUEEN as usize];
+
+        let mut bishop_pins = BitBoard::new();
+        let mut rook_pins = BitBoard::new();
+        while bishop_positions.not_zero() || queen_positions.not_zero() || rook_positions.not_zero() {
+            if let Some(bishop_square) = bishop_positions.pop_ls1b() {
+                let bishop_attacks = move_data.get_attacks(bishop_square, &Pieces::BISHOP, !self.side, &both_occupancy);
+                bishop_pins |= bishop_attacks & queen_attacks_from_king;
+                // loop through pieces, if piece is pinned, calculate its attacks and remove it
+            }
+            if let Some(queen_square) = queen_positions.pop_ls1b() {
+                let queen_bishop_attacks = move_data.get_attacks(queen_square, &Pieces::BISHOP, !self.side, &both_occupancy);
+                let queen_rook_attacks = move_data.get_attacks(queen_square, &Pieces::ROOK, !self.side, &both_occupancy);
+                bishop_pins |= queen_bishop_attacks & queen_attacks_from_king;
+                rook_pins |= queen_rook_attacks & queen_attacks_from_king;
+            }
+            if let Some(rook_square) = rook_positions.pop_ls1b() {
+                let rook_attacks = move_data.get_attacks(rook_square, &Pieces::ROOK, !self.side, &both_occupancy);
+                rook_pins |= rook_attacks & queen_attacks_from_king;
+            }
+
         }
         moves
     }
