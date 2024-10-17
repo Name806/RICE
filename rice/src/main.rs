@@ -265,45 +265,28 @@ impl Game {
         if num_checking == 1 {
             capture_mask = checking_pieces;
             let checker_square = checking_pieces.ls1b_index().expect("checking_pieces should not be empty");
-            if (checking_pieces & self.piece_positions[!self.side as usize][Pieces::QUEEN as usize]).not_zero() || (checking_pieces & self.piece_positions[!self.side as usize][Pieces::BISHOP as usize]).not_zero() || (checking_pieces & self.piece_positions[!self.side as usize][Pieces::ROOK as usize]).not_zero() {
-                // push mask = squares between king and attacker
-                block_mask = move_data.squares_between(king_square, checker_square);
-            }
-            else {
-                block_mask = BitBoard::new();
-            }
+            block_mask = move_data.squares_between(king_square, checker_square);
         }
 
         let queen_attacks_from_king = move_data.get_attacks(king_square, &Pieces::QUEEN, self.side, &both_occupancy);
 
-        let mut bishop_positions = self.piece_positions[!self.side as usize][Pieces::BISHOP as usize];
-        let mut rook_positions = self.piece_positions[!self.side as usize][Pieces::ROOK as usize];
-        let mut queen_positions = self.piece_positions[!self.side as usize][Pieces::QUEEN as usize];
+        // all the pieces that need their moves calculated (and the king)
+        let mut remaining_pieces = self.piece_positions[side_to_move];
 
-        let mut bishop_pins = BitBoard::new();
-        let mut rook_pins = BitBoard::new();
-        while bishop_positions.not_zero() || queen_positions.not_zero() || rook_positions.not_zero() {
-            if let Some(bishop_square) = bishop_positions.pop_ls1b() {
-                let bishop_attacks = move_data.get_attacks(bishop_square, &Pieces::BISHOP, !self.side, &both_occupancy);
-                bishop_pins |= bishop_attacks & queen_attacks_from_king;
-                // loop through pieces, if piece is pinned, calculate its attacks and remove it
+        const SLIDING_PIECES: [Pieces; 3] = [Pieces::BISHOP, Pieces::ROOK, Pieces::QUEEN];
+        for piece in SLIDING_PIECES {
+            let mut opponent_positions = self.piece_positions[!self.side as usize][piece as usize];
+            while opponent_positions.not_zero() {
+                let opponent_square = opponent_positions.pop_ls1b();
+                let opponent_attacks = move_data.get_attacks(opponent_square, &piece, !self.side, &both_occupancy);
+                let pin_position = opponent_attacks | queen_attacks_from_king;
+                moves.extend(self.calculate_pinned_moves(opponent_square, king_square, pin_position, piece, &mut remaining_pieces));
             }
-            if let Some(queen_square) = queen_positions.pop_ls1b() {
-                let queen_bishop_attacks = move_data.get_attacks(queen_square, &Pieces::BISHOP, !self.side, &both_occupancy);
-                let queen_rook_attacks = move_data.get_attacks(queen_square, &Pieces::ROOK, !self.side, &both_occupancy);
-                bishop_pins |= queen_bishop_attacks & queen_attacks_from_king;
-                rook_pins |= queen_rook_attacks & queen_attacks_from_king;
-            }
-            if let Some(rook_square) = rook_positions.pop_ls1b() {
-                let rook_attacks = move_data.get_attacks(rook_square, &Pieces::ROOK, !self.side, &both_occupancy);
-                rook_pins |= rook_attacks & queen_attacks_from_king;
-            }
-
         }
         moves
     }
 
-    fn calculate_pinned_moves(&self, pinning_positions: &BitBoard, piece_type: Pieces) -> Vec<EncodedMove> {
+    fn calculate_pinned_moves(&self, opponent_square: u8, king_square: u8, pin_position: BitBoard, piece: Pieces, remaining_pieces: &mut Vec<BitBoard>)  -> Vec<EncodedMove> {
 
     }
 	
