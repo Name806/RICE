@@ -274,20 +274,45 @@ impl Game {
         let mut remaining_pieces = self.piece_positions[side_to_move];
 
         const SLIDING_PIECES: [Pieces; 3] = [Pieces::BISHOP, Pieces::ROOK, Pieces::QUEEN];
-        for piece in SLIDING_PIECES {
-            let mut opponent_positions = self.piece_positions[!self.side as usize][piece as usize];
-            while opponent_positions.not_zero() {
-                let opponent_square = opponent_positions.pop_ls1b();
-                let opponent_attacks = move_data.get_attacks(opponent_square, &piece, !self.side, &both_occupancy);
-                let pin_position = opponent_attacks | queen_attacks_from_king;
-                moves.extend(self.calculate_pinned_moves(opponent_square, king_square, pin_position, piece, &mut remaining_pieces));
-            }
+        for sliding_piece in SLIDING_PIECES {
+            let mut opponent_positions = self.piece_positions[!self.side as usize][sliding_piece as usize];
+            calculate_pinned_pieces();
         }
         moves
     }
 
-    fn calculate_pinned_moves(&self, opponent_square: u8, king_square: u8, pin_position: BitBoard, piece: Pieces, remaining_pieces: &mut Vec<BitBoard>)  -> Vec<EncodedMove> {
+    fn calculate_pinned_pieces()  -> Vec<EncodedMove> {
+        while opponent_positions.not_zero() {
+            let opponent_square = opponent_positions.pop_ls1b();
+            let opponent_attacks = move_data.get_attacks(opponent_square, &sliding_piece, !self.side, &both_occupancy);
+            let pin_position = opponent_attacks & queen_attacks_from_king;
+            if !pin_position.not_zero() { break; }
+            let mut opponent_position = BitBoard::new();
+            opponent_position.set_bit(opponent_square);
+            let pinned_movement = move_data.squares_between(king_square, opponent_square) | opponent_position;
+            calculate_pinned_moves()
+        }
+    }
 
+    fn calculate_pinned_moves() -> Vec<EncodedMove> {
+        for piece in 0..6 {
+            let full_mask = if piece == Pieces::PAWN as usize { capture_mask } else { capture_mask | block_mask };
+            if piece == Pieces::KING as usize { continue; }
+            let mut position = self.piece_positions[self.side as usize][piece as usize];
+            if !(position & pin_position).not_zero() { continue; }
+            while position.not_zero() {
+                let square = position.pop_ls1b();
+                let mut piece_attacks = move_data.get_attacks(square, &piece, self.side, &both_occupancy);
+                piece_attacks &= !self.occupancies[Color::WHITE];
+                piece_attacks &= full_mask;
+                let mut square_position = BitBoard::new();
+                square_position.set_bit(square);
+                if (square_position & pin_position).not_zero() {
+                    remaining_pieces[piece] = !square_position;
+
+                }
+            }
+        }
     }
 	
 	fn board_to_moves(&self, source_square: u8, target_squares: &BitBoard, piece_moved: Pieces, en_passant: bool, double_push: bool, castle: bool, move_data: &AllMoveData) -> Vec<EncodedMove> {
