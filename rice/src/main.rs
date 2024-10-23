@@ -166,6 +166,10 @@ impl Game {
         new_game
     }
 
+    fn make_move(&self, encoded_move: &EncodedMove) -> Self {
+        let chess_move = encoded_move.decode();
+    }
+
     fn new_fen(fen: String) -> Self {
         let mut game = Game::new();
         let parts: Vec<&str> = fen.split_whitespace().collect();
