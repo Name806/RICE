@@ -116,7 +116,6 @@ struct Game {
     castle_rights: u8,
     halfmove_timer: u8,
     fullmove_number: u16,
-    moves: Vec<EncodedMove>,
 }
 
 impl Game {
@@ -129,7 +128,6 @@ impl Game {
             castle_rights: 0b1111,
             halfmove_timer: 0,
             fullmove_number: 0,
-            moves: Vec::new(),
         }
     }
 
@@ -219,7 +217,7 @@ impl Game {
         attacked
     }
 
-    fn generate_moves(&mut self, move_data: &AllMoveData) {
+    fn generate_moves(&self, moves: &mut Vec<EncodedMove>, move_data: &AllMoveData) {
         let side_to_move = self.side as usize;
         let both_occupancy = self.occupancies[BOTH_OCCUPANCIES];
         let king_position = self.piece_positions[side_to_move][Pieces::KING as usize];
@@ -240,7 +238,7 @@ impl Game {
         
         let num_checking = checking_pieces.count_bits();
 
-        self.add_moves(king_square, &king_attacks, Pieces::KING, false, &move_data);
+        self.add_moves(moves, king_square, &king_attacks, Pieces::KING, false, &move_data);
         if num_checking > 1 {
             return;
         }
@@ -264,7 +262,7 @@ impl Game {
             }
         }
 
-        self.add_moves(king_square, &castle_attacks, Pieces::KING, true, &move_data);
+        self.add_moves(moves, king_square, &castle_attacks, Pieces::KING, true, &move_data);
 
         let queen_attacks_from_king = move_data.get_attacks(king_square, &Pieces::QUEEN, self.side, &both_occupancy);
 
@@ -275,7 +273,7 @@ impl Game {
             while let Some(opponent_square) = opponent_positions.pop_ls1b() {
                 let opponent_attacks = move_data.get_attacks(opponent_square, &sliding_piece, !self.side, &both_occupancy);
                 let pinned_pieces = opponent_attacks & queen_attacks_from_king;
-                self.calculate_pinned_moves(&mut pieces_to_ignore, opponent_square, &pinned_pieces, king_square, &both_occupancy, &capture_mask, &block_mask, move_data);
+                self.calculate_pinned_moves(moves, &mut pieces_to_ignore, opponent_square, &pinned_pieces, king_square, &both_occupancy, &capture_mask, &block_mask, move_data);
             }
         }
 
@@ -285,12 +283,12 @@ impl Game {
             let mut piece_position = self.piece_positions[self.side as usize][piece as usize] & !pieces_to_ignore;
             while let Some(piece_square) = piece_position.pop_ls1b() {
                 let piece_attacks = self.get_legal_attacks(piece_square, piece_type, &both_occupancy, &block_mask, &capture_mask, king_square, move_data);
-                self.add_moves(piece_square, &piece_attacks, piece_type, false, move_data);
+                self.add_moves(moves, piece_square, &piece_attacks, piece_type, false, move_data);
             }
         }
     }
 
-    fn calculate_pinned_moves(&mut self, pieces_to_ignore: &mut BitBoard, opponent_square: u8, pinned_pieces: &BitBoard, king_square: u8, both_occupancy: &BitBoard, block_mask: &BitBoard, capture_mask: &BitBoard, move_data: &AllMoveData) {
+    fn calculate_pinned_moves(&self, moves: &mut Vec<EncodedMove>, pieces_to_ignore: &mut BitBoard, opponent_square: u8, pinned_pieces: &BitBoard, king_square: u8, both_occupancy: &BitBoard, block_mask: &BitBoard, capture_mask: &BitBoard, move_data: &AllMoveData) {
         for piece in 0..6 {
             let piece_type = Pieces::int_to_piece(piece);
             if piece_type == Pieces::KING { continue; }
@@ -303,7 +301,7 @@ impl Game {
                 let pinned_movement = move_data.squares_between(opponent_square, king_square) | opponent_position;
                 let piece_attacks = self.get_legal_attacks(pinned_square, piece_type, &both_occupancy, block_mask, capture_mask, king_square, &move_data);
                 let pinned_attacks = pinned_movement & piece_attacks;
-                self.add_moves(pinned_square, &pinned_attacks, piece_type, false, move_data);
+                self.add_moves(moves, pinned_square, &pinned_attacks, piece_type, false, move_data);
                 *pieces_to_ignore |= BitBoard::new_set(pinned_square);
             }
         }
@@ -364,7 +362,7 @@ impl Game {
     }
 
     
-    fn add_moves(&mut self, source_square: u8, target_squares: &BitBoard, piece_moved: Pieces, castle: bool, move_data: &AllMoveData) {
+    fn add_moves(&self, all_moves: &mut Vec<EncodedMove>, source_square: u8, target_squares: &BitBoard, piece_moved: Pieces, castle: bool, move_data: &AllMoveData) {
         let mut moves: Vec<EncodedMove> = Vec::new();
         let mut target_squares = target_squares.clone();
         while target_squares.not_zero() {
@@ -422,7 +420,7 @@ impl Game {
                 castle,
             }.encode());
         }
-        self.moves.extend(moves);
+        all_moves.extend(moves);
     }
 }
 
