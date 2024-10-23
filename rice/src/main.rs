@@ -118,6 +118,12 @@ struct Game {
     fullmove_number: u16,
 }
 
+enum GameState {
+    Draw,
+    Checkmate,
+    Normal,
+}
+
 impl Game {
     fn new() -> Self {
         Self {
@@ -129,6 +135,35 @@ impl Game {
             halfmove_timer: 0,
             fullmove_number: 0,
         }
+    }
+
+    fn deep_clone(old_game: &Self) -> Self {
+        let mut new_game = Self::new();
+        for i in 0..old_game.piece_positions.len() {
+            for j in 0..old_game.piece_positions[i].len() {
+                new_game.piece_positions[i][j] = BitBoard(old_game.piece_positions[j][i].0.clone());
+            }
+        }
+
+        for i in 0..old_game.occupancies.len() {
+            new_game.occupancies[i] = BitBoard(old_game.occupancies[i].0);
+        }
+
+        new_game.side = match old_game.side {
+            Color::WHITE => Color::WHITE,
+            Color::BLACK => Color::BLACK,
+        };
+
+        new_game.en_passant = match old_game.en_passant {
+            Some(index) => Some(index.clone()),
+            None => None,
+        };
+
+        new_game.castle_rights = old_game.castle_rights.clone();
+        new_game.halfmove_timer = old_game.halfmove_timer.clone();
+        new_game.fullmove_number = old_game.fullmove_number.clone();
+
+        new_game
     }
 
     fn new_fen(fen: String) -> Self {
@@ -217,7 +252,10 @@ impl Game {
         attacked
     }
 
-    fn generate_moves(&self, moves: &mut Vec<EncodedMove>, move_data: &AllMoveData) {
+    fn generate_moves(&self, moves: &mut Vec<EncodedMove>, move_data: &AllMoveData) -> GameState {
+        if self.halfmove_timer > 100 {
+            return GameState::Draw;
+        }
         let side_to_move = self.side as usize;
         let both_occupancy = self.occupancies[BOTH_OCCUPANCIES];
         let king_position = self.piece_positions[side_to_move][Pieces::KING as usize];
@@ -240,7 +278,10 @@ impl Game {
 
         self.add_moves(moves, king_square, &king_attacks, Pieces::KING, false, &move_data);
         if num_checking > 1 {
-            return;
+            if moves.len() == 0 {
+                return GameState::Checkmate;
+            }
+            return GameState::Normal;
         }
         let mut capture_mask = BitBoard(0xFFFFFFFFFFFFFFFF);
         let mut block_mask = BitBoard(0xFFFFFFFFFFFFFFFF);
@@ -286,6 +327,15 @@ impl Game {
                 self.add_moves(moves, piece_square, &piece_attacks, piece_type, false, move_data);
             }
         }
+        if moves.len() == 0 {
+            if num_checking != 0 {
+                return GameState::Checkmate;
+            }
+            else {
+                return GameState::Draw;
+            }
+        }
+        return GameState::Normal;
     }
 
     fn calculate_pinned_moves(&self, moves: &mut Vec<EncodedMove>, pieces_to_ignore: &mut BitBoard, opponent_square: u8, pinned_pieces: &BitBoard, king_square: u8, both_occupancy: &BitBoard, block_mask: &BitBoard, capture_mask: &BitBoard, move_data: &AllMoveData) {
