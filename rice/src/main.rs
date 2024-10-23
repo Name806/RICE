@@ -457,7 +457,9 @@ impl Game {
                     }
                 }
                 if (target_position & move_data.get_pawn_double_push_ranks(self.side)).not_zero() {
-                    double_push = true;
+                    if (source_square >= 8 && source_square < 16) || (source_square >= 48 && source_square > 56) {
+                        double_push = true;
+                    }
                 }
             }
             if en_passant {
