@@ -211,7 +211,9 @@ pub struct AllMoveData {
     bishop_attack_data: SlidingAttackData,
     rook_attack_data: SlidingAttackData,
     leaping_attack_data: LeapingAttackData,
-	promotion_ranks: Vec<BitBoard>,
+    pawn_single_push_ranks: Vec<BitBoard>,
+    pawn_double_push_ranks: Vec<BitBoard>,
+    promotion_ranks: Vec<BitBoard>,
     directions: Vec<Vec<BitBoard>>,
 }
 
@@ -274,22 +276,32 @@ impl AllMoveData {
     pub fn get_pawn_moves(&self, square: u8, side: Color) -> BitBoard {
         self.leaping_attack_data.pawn_moves[side as usize][square as usize]
     }
-	
-	pub fn get_promotion_ranks(&self, side: Color) -> BitBoard {
-		self.promotion_ranks[side as usize]
-	}
+    
+    pub fn get_promotion_ranks(&self, side: Color) -> BitBoard {
+        self.promotion_ranks[side as usize]
+    }
+
+    pub fn get_pawn_single_push_ranks(&self, side: Color) -> BitBoard {
+        self.pawn_single_push_ranks[side as usize]
+    }
+
+    pub fn get_pawn_double_push_ranks(&self, side: Color) -> BitBoard {
+        self.pawn_double_push_ranks[side as usize]
+    }
 
     pub fn get_direction(&self, square: u8, file_dir: i8, rank_dir: i8) -> BitBoard {
         self.directions[direction_to_index(file_dir, rank_dir)][square as usize]
     }
-	
-	pub fn new(bishop_attack_data: SlidingAttackData, rook_attack_data: SlidingAttackData, leaping_attack_data: LeapingAttackData, promotion_ranks: Vec<BitBoard>, directions: Vec<Vec<BitBoard>>) -> Self {
-		Self {
-			bishop_attack_data,
-			rook_attack_data,
-			leaping_attack_data,
-			promotion_ranks,
+    
+    pub fn new(bishop_attack_data: SlidingAttackData, rook_attack_data: SlidingAttackData, leaping_attack_data: LeapingAttackData, promotion_ranks: Vec<BitBoard>, pawn_single_push_ranks: Vec<BitBoard>, pawn_double_push_ranks: Vec<BitBoard>, directions: Vec<Vec<BitBoard>>) -> Self {
+        Self {
+            bishop_attack_data,
+            rook_attack_data,
+            leaping_attack_data,
+            promotion_ranks,
+            pawn_single_push_ranks,
+            pawn_double_push_ranks,
             directions,
-		}
-	}
+        }
+    }
 }

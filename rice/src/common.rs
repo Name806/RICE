@@ -1,6 +1,35 @@
 use std::{ops, cmp};
 use serde::{Serialize, Deserialize};
 
+pub enum CastleRights {
+    WHITE_KING,
+    WHITE_QUEEN,
+    BLACK_KING,
+    BLACK_QUEEN,
+}
+
+impl CastleRights {
+    pub fn as_int(&self) -> u8 {
+        match self {
+            Self::WHITE_KING =>     0b1,
+            Self::WHITE_QUEEN =>   0b10,
+            Self::BLACK_KING =>   0b100,
+            Self::BLACK_QUEEN => 0b1000,
+        }
+    }
+    pub fn int_to_castle_rights(i: u8) -> Self {
+        match i {
+            0b1 => Self::WHITE_KING,
+            0b10 => Self::WHITE_QUEEN,
+            0b100 => Self::BLACK_KING,
+            0b1000 => Self::BLACK_QUEEN,
+            _ => panic!("wrong flag passed to int_to_castle_rights"),
+        }
+    }
+}
+
+
+
 pub fn direction_to_index(file: i8, rank: i8) -> usize {
     match (file, rank) {
         (1, 0) => 0, // right
@@ -35,6 +64,9 @@ pub struct BitBoard(pub u64);
 impl BitBoard {
     pub fn new() -> Self {
         return Self(0);
+    }
+    pub fn new_set(i: u8) -> Self {
+        Self(1 << i)
     }
     pub fn set_bit(&mut self, index: u8) { self.0 |= 1 << index as u64 }
     pub fn get_bit(&self, index: u8) -> bool { (self.0 & (1 << index as u64)) != 0 }
@@ -211,7 +243,9 @@ pub struct AllMoveData {
     bishop_attack_data: SlidingAttackData,
     rook_attack_data: SlidingAttackData,
     leaping_attack_data: LeapingAttackData,
-	promotion_ranks: Vec<BitBoard>,
+    pawn_single_push_ranks: Vec<BitBoard>,
+    pawn_double_push_ranks: Vec<BitBoard>,
+    promotion_ranks: Vec<BitBoard>,
     directions: Vec<Vec<BitBoard>>,
 }
 
@@ -253,7 +287,6 @@ impl ops::Not for Color {
             Color::BLACK => Color::WHITE,
         }
     }
-
 }
 
 impl AllMoveData {
@@ -275,41 +308,61 @@ impl AllMoveData {
     pub fn get_pawn_moves(&self, square: u8, side: Color) -> BitBoard {
         self.leaping_attack_data.pawn_moves[side as usize][square as usize]
     }
-	
-	pub fn get_promotion_ranks(&self, side: Color) -> BitBoard {
-		self.promotion_ranks[side as usize]
-	}
+    
+    pub fn get_promotion_ranks(&self, side: Color) -> BitBoard {
+        self.promotion_ranks[side as usize]
+    }
+
+    pub fn get_pawn_single_push_ranks(&self, side: Color) -> BitBoard {
+        self.pawn_single_push_ranks[side as usize]
+    }
+
+    pub fn get_pawn_double_push_ranks(&self, side: Color) -> BitBoard {
+        self.pawn_double_push_ranks[side as usize]
+    }
 
     pub fn get_direction(&self, square: u8, file_dir: i8, rank_dir: i8) -> BitBoard {
         self.directions[direction_to_index(file_dir, rank_dir)][square as usize]
     }
 
+    pub fn get_castle_info(&self, rights: CastleRights, side: Color) -> Option<(u8, BitBoard)> {
+        match (rights, side) {
+            (CastleRights::WHITE_KING, Color::WHITE) => Some((62, BitBoard((1 << 62) | (1 << 61)))),
+            (CastleRights::WHITE_QUEEN, Color::WHITE) => Some((58, BitBoard((1 << 59) | (1 << 58)))),
+            (CastleRights::BLACK_KING, Color::BLACK) => Some((6, BitBoard((1 << 5) | (1 << 6)))),
+            (CastleRights::BLACK_QUEEN, Color::BLACK) => Some((2, BitBoard((1 << 2) | (1 << 3)))),
+            _ => None,
+        }
+    }
+
     pub fn squares_between(&self, s1: u8, s2: u8) -> BitBoard {
+        let file_dir;
+        let rank_dir;
         let file1 = s1 % 8;
-        let file2 = s2 % 8;
         let rank1 = s1 / 8;
+        let file2 = s2 % 8;
         let rank2 = s2 / 8;
 
-        let file_dir = if file1 > file2 { -1 }
-        else if file1 < file2 { 1 }
-        else { 0 };
+        if file1 > file2 { file_dir = -1; }
+        else if file1 < file2 { file_dir = 1; }
+        else { file_dir = 0; }
 
-        let rank_dir = if rank1 > rank2 { -1 }
-        else if file1 < file2 { 1 }
-        else { 0 };
+        if rank1 > rank2 { rank_dir = -1; }
+        else if rank1 < rank2 { rank_dir = 1; }
+        else { rank_dir = 0; }
 
-        let dir1 = self.get_direction(s1, file_dir, rank_dir);
-        let dir2 = self.get_direction(s2, -file_dir, -rank_dir);
-        dir1 & dir2
+        self.get_direction(s1, file_dir, rank_dir) & self.get_direction(s2, -file_dir, -rank_dir)
     }
-	
-	pub fn new(bishop_attack_data: SlidingAttackData, rook_attack_data: SlidingAttackData, leaping_attack_data: LeapingAttackData, promotion_ranks: Vec<BitBoard>, directions: Vec<Vec<BitBoard>>) -> Self {
-		Self {
-			bishop_attack_data,
-			rook_attack_data,
-			leaping_attack_data,
-			promotion_ranks,
+    
+    pub fn new(bishop_attack_data: SlidingAttackData, rook_attack_data: SlidingAttackData, leaping_attack_data: LeapingAttackData, promotion_ranks: Vec<BitBoard>, pawn_single_push_ranks: Vec<BitBoard>, pawn_double_push_ranks: Vec<BitBoard>, directions: Vec<Vec<BitBoard>>) -> Self {
+        Self {
+            bishop_attack_data,
+            rook_attack_data,
+            leaping_attack_data,
+            promotion_ranks,
+            pawn_single_push_ranks,
+            pawn_double_push_ranks,
             directions,
-		}
-	}
+        }
+    }
 }

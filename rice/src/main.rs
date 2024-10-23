@@ -4,6 +4,7 @@ use common::BitBoard;
 use common::SlidingAttackData;
 use common::LeapingAttackData;
 use common::AllMoveData;
+use common::CastleRights;
 use std::fs::File;
 use std::io::{self, Read};
 use common::{Color, Pieces};
@@ -20,23 +21,6 @@ impl Pieces {
             'k' | 'K' => Some(Self::KING),
             _ => None,
             }
-    }
-}
-enum CastleRights {
-    WHITE_KING,
-    WHITE_QUEEN,
-    BLACK_KING,
-    BLACK_QUEEN,
-}
-
-impl CastleRights {
-    fn as_int(&self) -> u8 {
-        match self {
-            Self::WHITE_KING =>     0b1,
-            Self::WHITE_QUEEN =>   0b10,
-            Self::BLACK_KING =>   0b100,
-            Self::BLACK_QUEEN => 0b1000,
-        }
     }
 }
 
@@ -132,6 +116,7 @@ struct Game {
     castle_rights: u8,
     halfmove_timer: u8,
     fullmove_number: u16,
+    moves: Vec<EncodedMove>,
 }
 
 impl Game {
@@ -144,6 +129,7 @@ impl Game {
             castle_rights: 0b1111,
             halfmove_timer: 0,
             fullmove_number: 0,
+            moves: Vec::new(),
         }
     }
 
@@ -233,136 +219,211 @@ impl Game {
         attacked
     }
 
-    fn get_moves(&self, move_data: &AllMoveData) -> Vec<EncodedMove> {
-        let mut moves = Vec::new();
-
+    fn generate_moves(&mut self, move_data: &AllMoveData) {
         let side_to_move = self.side as usize;
-		let both_occupancy = self.occupancies[BOTH_OCCUPANCIES];
-		let king_position = self.piece_positions[side_to_move][Pieces::KING as usize];
+        let both_occupancy = self.occupancies[BOTH_OCCUPANCIES];
+        let king_position = self.piece_positions[side_to_move][Pieces::KING as usize];
 
         let king_square = king_position.ls1b_index().expect("King not found!");
-		let mut king_attacks = move_data.get_attacks(king_square, &Pieces::KING, self.side, &both_occupancy);
-		king_attacks &= !self.occupancies[side_to_move];
-		let without_king_occupancy = both_occupancy & !king_position;
-		let king_danger_squares = self.get_attacked_squares(!self.side, move_data, &without_king_occupancy);
-		king_attacks |= !king_danger_squares;
-		
-		let mut checking_pieces = BitBoard::new();
-		for piece in 0..6 {
+        let mut king_attacks = move_data.get_attacks(king_square, &Pieces::KING, self.side, &both_occupancy);
+        king_attacks &= !self.occupancies[side_to_move];
+        let without_king_occupancy = both_occupancy & !king_position;
+        let king_danger_squares = self.get_attacked_squares(!self.side, move_data, &without_king_occupancy);
+        king_attacks &= !king_danger_squares;
+        
+        let mut checking_pieces = BitBoard::new();
+        for piece in 0..6 {
             if piece == Pieces::KING as u8 { continue; }
-			let attacks_from_king = move_data.get_attacks(king_square, &Pieces::int_to_piece(piece), !self.side, &both_occupancy);
-			checking_pieces |= self.piece_positions[!self.side as usize][piece as usize] & attacks_from_king;
-		}
-		
-		let num_checking = checking_pieces.count_bits();
+            let attacks_from_king = move_data.get_attacks(king_square, &Pieces::int_to_piece(piece), !self.side, &both_occupancy);
+            checking_pieces |= self.piece_positions[!self.side as usize][piece as usize] & attacks_from_king;
+        }
+        
+        let num_checking = checking_pieces.count_bits();
 
-        moves.extend(self.board_to_moves(king_square, &king_attacks, Pieces::KING, false, false, false, &move_data));
-		if num_checking > 1 {
-			return moves;
-		}
+        self.add_moves(king_square, &king_attacks, Pieces::KING, false, &move_data);
+        if num_checking > 1 {
+            return;
+        }
         let mut capture_mask = BitBoard(0xFFFFFFFFFFFFFFFF);
         let mut block_mask = BitBoard(0xFFFFFFFFFFFFFFFF);
+        let mut castle_attacks = BitBoard::new();
         if num_checking == 1 {
             capture_mask = checking_pieces;
             let checker_square = checking_pieces.ls1b_index().expect("checking_pieces should not be empty");
             block_mask = move_data.squares_between(king_square, checker_square);
         }
-
-        let queen_attacks_from_king = move_data.get_attacks(king_square, &Pieces::QUEEN, self.side, &both_occupancy);
-
-        // all the pieces that need their moves calculated (and the king)
-        let mut remaining_pieces = self.piece_positions[side_to_move];
-
-        const SLIDING_PIECES: [Pieces; 3] = [Pieces::BISHOP, Pieces::ROOK, Pieces::QUEEN];
-        for sliding_piece in SLIDING_PIECES {
-            let mut opponent_positions = self.piece_positions[!self.side as usize][sliding_piece as usize];
-            calculate_pinned_pieces();
-        }
-        moves
-    }
-
-    fn calculate_pinned_pieces()  -> Vec<EncodedMove> {
-        while opponent_positions.not_zero() {
-            let opponent_square = opponent_positions.pop_ls1b();
-            let opponent_attacks = move_data.get_attacks(opponent_square, &sliding_piece, !self.side, &both_occupancy);
-            let pin_position = opponent_attacks & queen_attacks_from_king;
-            if !pin_position.not_zero() { break; }
-            let mut opponent_position = BitBoard::new();
-            opponent_position.set_bit(opponent_square);
-            let pinned_movement = move_data.squares_between(king_square, opponent_square) | opponent_position;
-            calculate_pinned_moves()
-        }
-    }
-
-    fn calculate_pinned_moves() -> Vec<EncodedMove> {
-        for piece in 0..6 {
-            let full_mask = if piece == Pieces::PAWN as usize { capture_mask } else { capture_mask | block_mask };
-            if piece == Pieces::KING as usize { continue; }
-            let mut position = self.piece_positions[self.side as usize][piece as usize];
-            if !(position & pin_position).not_zero() { continue; }
-            while position.not_zero() {
-                let square = position.pop_ls1b();
-                let mut piece_attacks = move_data.get_attacks(square, &piece, self.side, &both_occupancy);
-                piece_attacks &= !self.occupancies[Color::WHITE];
-                piece_attacks &= full_mask;
-                let mut square_position = BitBoard::new();
-                square_position.set_bit(square);
-                if (square_position & pin_position).not_zero() {
-                    remaining_pieces[piece] = !square_position;
-
+        else {
+            for i in 0..4 {
+                let flag = 1 << i;
+                let castle_rights = CastleRights::int_to_castle_rights(flag);
+                if self.castle_rights & flag == 0 { continue; }
+                if let Some((target_square, move_squares)) = move_data.get_castle_info(castle_rights, self.side) {
+                    if (move_squares & king_danger_squares).not_zero() { continue; }
+                    castle_attacks |= BitBoard::new_set(target_square);
                 }
             }
         }
+
+        self.add_moves(king_square, &castle_attacks, Pieces::KING, true, &move_data);
+
+        let queen_attacks_from_king = move_data.get_attacks(king_square, &Pieces::QUEEN, self.side, &both_occupancy);
+
+        let mut pieces_to_ignore = BitBoard::new();
+        const SLIDING_PIECES: [Pieces; 3] = [Pieces::BISHOP, Pieces::ROOK, Pieces::QUEEN];
+        for sliding_piece in SLIDING_PIECES {
+            let mut opponent_positions = self.piece_positions[!self.side as usize][sliding_piece as usize];
+            while let Some(opponent_square) = opponent_positions.pop_ls1b() {
+                let opponent_attacks = move_data.get_attacks(opponent_square, &sliding_piece, !self.side, &both_occupancy);
+                let pinned_pieces = opponent_attacks & queen_attacks_from_king;
+                self.calculate_pinned_moves(&mut pieces_to_ignore, opponent_square, &pinned_pieces, king_square, &both_occupancy, &capture_mask, &block_mask, move_data);
+            }
+        }
+
+        for piece in 0..6 {
+            let piece_type = Pieces::int_to_piece(piece);
+            if piece_type == Pieces::KING { continue; }
+            let mut piece_position = self.piece_positions[self.side as usize][piece as usize] & !pieces_to_ignore;
+            while let Some(piece_square) = piece_position.pop_ls1b() {
+                let piece_attacks = self.get_legal_attacks(piece_square, piece_type, &both_occupancy, &block_mask, &capture_mask, king_square, move_data);
+                self.add_moves(piece_square, &piece_attacks, piece_type, false, move_data);
+            }
+        }
     }
-	
-	fn board_to_moves(&self, source_square: u8, target_squares: &BitBoard, piece_moved: Pieces, en_passant: bool, double_push: bool, castle: bool, move_data: &AllMoveData) -> Vec<EncodedMove> {
-		let mut moves: Vec<EncodedMove> = Vec::new();
-		let mut target_squares = target_squares.clone();
-		while target_squares.not_zero() {
-			let target_square = target_squares.pop_ls1b().expect("target_squares not zero");
-			let mut target_position = BitBoard::new();
-			target_position.set_bit(target_square);
-			let mut capture: Option<Pieces> = None;
-			if en_passant {
-				capture = Some(Pieces::PAWN);
-			}
-			for piece in 0..6 {
-				if (self.piece_positions[!self.side as usize][piece] & target_position).not_zero() {
-					capture = Some(Pieces::int_to_piece(piece as u8));
-					break;
-				}
-			}
-			if piece_moved.clone() == Pieces::PAWN {
-				if (target_position & move_data.get_promotion_ranks(self.side)).not_zero() {
-					const promotion_options: [Pieces; 4] = [Pieces::QUEEN, Pieces::BISHOP, Pieces::ROOK, Pieces::KNIGHT];
-					for promoted_piece in promotion_options {
-						moves.push(Move {
-							source_square,
-							target_square,
-							piece_moved: piece_moved.clone(),
-							capture,
-							promoted_piece: Some(promoted_piece),
-							en_passant,
-							double_push,
-							castle,
-						}.encode());
-					}
-					return moves;
-				}
-			}
-			moves.push(Move {
-				source_square,
-				target_square,
-				piece_moved,
-				capture,
-				promoted_piece: None,
-				en_passant,
-				double_push,
-				castle,
-			}.encode());
-		}
-		moves
-	}
+
+    fn calculate_pinned_moves(&mut self, pieces_to_ignore: &mut BitBoard, opponent_square: u8, pinned_pieces: &BitBoard, king_square: u8, both_occupancy: &BitBoard, block_mask: &BitBoard, capture_mask: &BitBoard, move_data: &AllMoveData) {
+        for piece in 0..6 {
+            let piece_type = Pieces::int_to_piece(piece);
+            if piece_type == Pieces::KING { continue; }
+            let mut pinned_pieces_of_type = self.get_piece_positions(self.side, piece_type) & *pinned_pieces;
+            while let Some(pinned_square) = pinned_pieces_of_type.pop_ls1b() {
+                let mut pinned_position = BitBoard::new();
+                pinned_position.set_bit(pinned_square);
+                let opponent_position = BitBoard::new_set(opponent_square);
+
+                let pinned_movement = move_data.squares_between(opponent_square, king_square) | opponent_position;
+                let piece_attacks = self.get_legal_attacks(pinned_square, piece_type, &both_occupancy, block_mask, capture_mask, king_square, &move_data);
+                let pinned_attacks = pinned_movement & piece_attacks;
+                self.add_moves(pinned_square, &pinned_attacks, piece_type, false, move_data);
+                *pieces_to_ignore |= BitBoard::new_set(pinned_square);
+            }
+        }
+    }
+
+    fn check_en_passant_special_case(&self, king_square: u8, both_occupancy: &BitBoard, piece_attacks: &BitBoard, passant_position: &BitBoard, move_data: &AllMoveData) -> bool {
+        if !(*piece_attacks & *passant_position).not_zero() { return false; }
+        let passant_rank = move_data.get_pawn_double_push_ranks(!self.side);
+        if !(passant_rank & BitBoard::new_set(king_square)).not_zero() { return false; }
+        const STRAIGHT_SLIDING_PIECES: [Pieces; 2] = [Pieces::ROOK, Pieces::QUEEN];
+        for piece in STRAIGHT_SLIDING_PIECES {
+            let mut enemy_positions = self.piece_positions[!self.side as usize][piece as usize] & passant_rank;
+            while let Some(enemy_square) = enemy_positions.pop_ls1b() {
+                if !(BitBoard::new_set(enemy_square) & passant_rank).not_zero() { continue; }
+                if (move_data.squares_between(king_square, enemy_square) & *both_occupancy).count_bits() != 2 {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    fn get_legal_attacks(&self, square: u8, piece_type: Pieces, both_occupancy: &BitBoard, block_mask: &BitBoard, capture_mask: &BitBoard, king_square: u8, move_data: &AllMoveData) -> BitBoard {
+        let mut piece_attacks = move_data.get_attacks(square, &piece_type, self.side, both_occupancy);
+        if piece_type == Pieces::PAWN {
+            let mut pawn_attack_mask = self.occupancies[!self.side as usize] & *capture_mask;
+            if let Some(en_passant_square) = self.en_passant {
+                let passant_position = BitBoard::new_set(en_passant_square);
+                pawn_attack_mask |= passant_position;
+                if self.check_en_passant_special_case(king_square, both_occupancy, &piece_attacks, &passant_position, move_data) {
+                    pawn_attack_mask = BitBoard::new();
+                }
+            }
+            let pawn_attacks = piece_attacks & pawn_attack_mask;
+            let mut pawn_movement = move_data.get_pawn_moves(square, self.side);
+            if pawn_movement.count_bits() == 2 && (*both_occupancy & (move_data.get_pawn_single_push_ranks(self.side) & pawn_movement)).not_zero() {
+                pawn_movement = BitBoard::new();
+            }
+            pawn_movement &= *block_mask;
+            piece_attacks = pawn_attacks | pawn_movement;
+        }
+        else {
+            piece_attacks &= *block_mask | *capture_mask;
+        }
+        piece_attacks &= !self.occupancies[self.side as usize];
+        piece_attacks
+    }
+
+    fn google_en_passant() {
+        println!("holy hell!");
+        // i actually think I can add this to add_moves, if the piece that is moving is a pawn and
+        // it is capturing en_passant_target, then it is en_passant. also, I need to make sure when
+        // I generate pawn attacks that I let them attack en passant squares.
+    }
+
+    fn get_piece_positions(&self, side: Color, piece: Pieces) -> BitBoard{
+        self.piece_positions[side as usize][piece as usize]
+    }
+
+    
+    fn add_moves(&mut self, source_square: u8, target_squares: &BitBoard, piece_moved: Pieces, castle: bool, move_data: &AllMoveData) {
+        let mut moves: Vec<EncodedMove> = Vec::new();
+        let mut target_squares = target_squares.clone();
+        while target_squares.not_zero() {
+            let target_square = target_squares.pop_ls1b().expect("target_squares not zero");
+            let mut target_position = BitBoard::new();
+            target_position.set_bit(target_square);
+            let mut capture: Option<Pieces> = None;
+            
+            for piece in 0..6 {
+                if (self.piece_positions[!self.side as usize][piece] & target_position).not_zero() {
+                    capture = Some(Pieces::int_to_piece(piece as u8));
+                    break;
+                }
+            }
+            let mut en_passant = false;
+            let mut double_push = false;
+            if piece_moved.clone() == Pieces::PAWN {
+                if (target_position & move_data.get_promotion_ranks(self.side)).not_zero() {
+                    const promotion_options: [Pieces; 4] = [Pieces::QUEEN, Pieces::BISHOP, Pieces::ROOK, Pieces::KNIGHT];
+                    for promoted_piece in promotion_options {
+                        moves.push(Move {
+                            source_square,
+                            target_square,
+                            piece_moved: piece_moved.clone(),
+                            capture,
+                            promoted_piece: Some(promoted_piece),
+                            en_passant,
+                            double_push,
+                            castle,
+                        }.encode());
+                    }
+                    return;
+                }
+
+                if let Some(en_passant_square) = self.en_passant {
+                    if (target_position & BitBoard::new_set(en_passant_square)).not_zero() {
+                        en_passant = true;
+                    }
+                }
+                if (target_position & move_data.get_pawn_double_push_ranks(self.side)).not_zero() {
+                    double_push = true;
+                }
+            }
+            if en_passant {
+                capture = Some(Pieces::PAWN);
+            }
+            moves.push(Move {
+                source_square,
+                target_square,
+                piece_moved,
+                capture,
+                promoted_piece: None,
+                en_passant,
+                double_push,
+                castle,
+            }.encode());
+        }
+        self.moves.extend(moves);
+    }
 }
 
 const starting_fen: &'static str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 0";
