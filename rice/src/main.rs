@@ -370,12 +370,12 @@ impl Game {
             let mut enemy_positions = self.piece_positions[!self.side as usize][piece as usize] & passant_rank;
             while let Some(enemy_square) = enemy_positions.pop_ls1b() {
                 if !(BitBoard::new_set(enemy_square) & passant_rank).not_zero() { continue; }
-                if (move_data.squares_between(king_square, enemy_square) & *both_occupancy).count_bits() != 2 {
-                    return false;
+                if (move_data.squares_between(king_square, enemy_square) & *both_occupancy).count_bits() == 2 {
+                    return true;
                 }
             }
         }
-        return true;
+        return false;
     }
 
     fn get_legal_attacks(&self, square: u8, piece_type: Pieces, both_occupancy: &BitBoard, block_mask: &BitBoard, capture_mask: &BitBoard, king_square: u8, move_data: &AllMoveData) -> BitBoard {
@@ -457,7 +457,7 @@ impl Game {
                     }
                 }
                 if (target_position & move_data.get_pawn_double_push_ranks(self.side)).not_zero() {
-                    if (source_square >= 8 && source_square < 16) || (source_square >= 48 && source_square > 56) {
+                    if (source_square >= 8 && source_square < 16) || (source_square >= 48 && source_square < 56) {
                         double_push = true;
                     }
                 }
