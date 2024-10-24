@@ -196,10 +196,47 @@ impl Game {
 
         // update en passant target
         if move_made.double_push {
+            let mut target_position = BitBoard::new_set(move_made.target_square);
+            if self.side == Color::WHITE {
+                target_position <<= 8;
+            }
+            else {
+                target_position >>= 8;
+            }
+            new_game.en_passant_target = Some(target_position);
+        }
+        else {
+            new_game.en_passant_target = None;
+        }
 
+        if move_made.en_passant {
+            let mut captured_square = move_made.target_square;
+            if self.side == Color::WHITE {
+                captured_position += 8;
+            }
+            else {
+                captured_position -= 8;
+            }
+            new_game.piece_position[!self.side as usize][Pieces::PAWN as usize].pop_bit(captured_position);
+            new_game.occupancies[!self.side as usize].pop_bit(captured_position);
+        }
+
+        //todo: update castle rights
+        
+        if move_made.castle {
+            let rook_old_square = move_made.target_square
         }
 
         new_game;
+    }
+
+    fn rook_movement(king_target_square) -> (u8, u8, CastleRights) {
+        match king_target_square {
+            62 => (63, 61, CastleRights::WHITE_KING),
+            58 => (56, 59, CastleRights::WHITE_QUEEN),
+            6 => (7, 5, CastleRights::BLACK_KING),
+            2 => (0, 3, CastleRights::BLACK_QUEEN),
+        }
     }
 
     fn new_fen(fen: String) -> Self {
