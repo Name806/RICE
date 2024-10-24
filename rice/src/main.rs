@@ -587,7 +587,7 @@ fn main() {
     let mut contents = String::new();
     file.read_to_string(&mut contents).unwrap();
     let all_move_data: AllMoveData = serde_json::from_str(&contents).unwrap();
-    println!("loaded move data");
+    println!("loaded move data"); // move data is loaded, program is ready
     
     let starting_game = Game::new_fen(String::from(starting_fen));
     starting_game.piece_positions[Color::BLACK as usize][Pieces::PAWN as usize].display();
