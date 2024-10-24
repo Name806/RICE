@@ -167,7 +167,39 @@ impl Game {
     }
 
     fn make_move(&self, encoded_move: &EncodedMove) -> Self {
-        let chess_move = encoded_move.decode();
+        let move_made = encoded_move.decode();
+        let mut new_game = self.deep_clone();
+
+        // update piece position
+        new_game.piece_positions[self.side as usize][move_made.piece_moved as usize].pop_bit(move_made.source_square);
+        new_game.piece_positions[self.side as usize][move_made.piece_moved as usize].set_bit(move_made.target_square);
+
+        // update occupancy for moved piece
+        new_game.occupancies[self.side as usize].pop_bit(move_made.source_bitboard);
+        new_game.occupancies[self.side as usize].set_bit(move_made.target_bitboard);
+
+        new_game.occupancies[Constants::BOTH_OCCUPANCIES].pop_bit(move_made.source_square);
+        new_game.occupancies[Constants::BOTH_OCCUPANCIES].set_bit(move_made.target_square);
+
+        // update if capture
+        if let Some(piece_captured) = move_made.capture {
+            new_game.piece_positions[!self.side as usize][piece_captured as usize].pop_bit(move_made.target_square);
+            new_game.occupancies[!self.side as usize].pop_bit(move_made.target_square);
+            new_game.occupancies[Constants::BOTH_OCCUPANCIES].pop_bit(move_made.target_square);
+        }
+
+        // promotion
+        if let Some(promoted_piece) = move_made.promoted_piece {
+            new_game.piece_positions[self.side as usize][Pieces::PAWN as usize].pop_bit(target_square);
+            new_game.piece_positions[self.side as usize][promoted_piece as usize].set_bit(target_square);
+        }
+
+        // update en passant target
+        if move_made.double_push {
+
+        }
+
+        new_game;
     }
 
     fn new_fen(fen: String) -> Self {
