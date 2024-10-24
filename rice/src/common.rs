@@ -75,6 +75,10 @@ impl BitBoard {
         self.0 &= !(1 << index as u64);
         result
     }
+    pub fn move_bit(&mut self, source_square: u8, target_square: u8) {
+        self.pop_bit(source_square);
+        self.set_bit(target_square);
+    }
     pub fn count_bits(&self) -> u8 {
         let mut count = 0;
         let mut value = self.0;
@@ -201,6 +205,7 @@ impl Constants {
     pub const BLACK: u8 = 1;
     pub const BISHOP: u8 = 0;
     pub const ROOK: u8 = 1;
+    pub const BOTH_OCCUPANCIES: usize = 2;
     pub const FILE_NAME: &'static str = "move_data.json";
 }
 
@@ -273,7 +278,7 @@ impl Pieces {
     }
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, PartialEq)]
 pub enum Color {
     WHITE,
     BLACK,

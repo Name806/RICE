@@ -72,6 +72,7 @@ impl Move {
     }
 }
 
+#[derive(Copy, Clone)]
 struct EncodedMove(u32);
 
 impl EncodedMove {
@@ -137,31 +138,31 @@ impl Game {
         }
     }
 
-    fn deep_clone(old_game: &Self) -> Self {
+    fn deep_clone(&self) -> Self {
         let mut new_game = Self::new();
-        for i in 0..old_game.piece_positions.len() {
-            for j in 0..old_game.piece_positions[i].len() {
-                new_game.piece_positions[i][j] = BitBoard(old_game.piece_positions[j][i].0.clone());
+        for i in 0..self.piece_positions.len() {
+            for j in 0..self.piece_positions[i].len() {
+                new_game.piece_positions[i][j] = BitBoard(self.piece_positions[j][i].0.clone());
             }
         }
 
-        for i in 0..old_game.occupancies.len() {
-            new_game.occupancies[i] = BitBoard(old_game.occupancies[i].0);
+        for i in 0..self.occupancies.len() {
+            new_game.occupancies[i] = BitBoard(self.occupancies[i].0);
         }
 
-        new_game.side = match old_game.side {
+        new_game.side = match self.side {
             Color::WHITE => Color::WHITE,
             Color::BLACK => Color::BLACK,
         };
 
-        new_game.en_passant = match old_game.en_passant {
+        new_game.en_passant = match self.en_passant {
             Some(index) => Some(index.clone()),
             None => None,
         };
 
-        new_game.castle_rights = old_game.castle_rights.clone();
-        new_game.halfmove_timer = old_game.halfmove_timer.clone();
-        new_game.fullmove_number = old_game.fullmove_number.clone();
+        new_game.castle_rights = self.castle_rights.clone();
+        new_game.halfmove_timer = self.halfmove_timer.clone();
+        new_game.fullmove_number = self.fullmove_number.clone();
 
         new_game
     }
@@ -171,15 +172,11 @@ impl Game {
         let mut new_game = self.deep_clone();
 
         // update piece position
-        new_game.piece_positions[self.side as usize][move_made.piece_moved as usize].pop_bit(move_made.source_square);
-        new_game.piece_positions[self.side as usize][move_made.piece_moved as usize].set_bit(move_made.target_square);
+        new_game.piece_positions[self.side as usize][move_made.piece_moved as usize].move_bit(move_made.source_square, move_made.target_square);
 
         // update occupancy for moved piece
-        new_game.occupancies[self.side as usize].pop_bit(move_made.source_bitboard);
-        new_game.occupancies[self.side as usize].set_bit(move_made.target_bitboard);
-
-        new_game.occupancies[Constants::BOTH_OCCUPANCIES].pop_bit(move_made.source_square);
-        new_game.occupancies[Constants::BOTH_OCCUPANCIES].set_bit(move_made.target_square);
+        new_game.occupancies[self.side as usize].move_bit(move_made.source_square, move_made.target_square);
+        new_game.occupancies[Constants::BOTH_OCCUPANCIES].move_bit(move_made.source_square, move_made.target_square);
 
         // update if capture
         if let Some(piece_captured) = move_made.capture {
@@ -190,52 +187,89 @@ impl Game {
 
         // promotion
         if let Some(promoted_piece) = move_made.promoted_piece {
-            new_game.piece_positions[self.side as usize][Pieces::PAWN as usize].pop_bit(target_square);
-            new_game.piece_positions[self.side as usize][promoted_piece as usize].set_bit(target_square);
+            new_game.piece_positions[self.side as usize][Pieces::PAWN as usize].pop_bit(move_made.target_square);
+            new_game.piece_positions[self.side as usize][promoted_piece as usize].set_bit(move_made.target_square);
         }
 
         // update en passant target
         if move_made.double_push {
-            let mut target_position = BitBoard::new_set(move_made.target_square);
+            let mut target_position = move_made.target_square;
             if self.side == Color::WHITE {
-                target_position <<= 8;
+                target_position -= 8;
             }
             else {
-                target_position >>= 8;
+                target_position += 8;
             }
-            new_game.en_passant_target = Some(target_position);
+            new_game.en_passant = Some(target_position);
         }
         else {
-            new_game.en_passant_target = None;
+            new_game.en_passant = None;
         }
 
         if move_made.en_passant {
             let mut captured_square = move_made.target_square;
             if self.side == Color::WHITE {
-                captured_position += 8;
+                captured_square += 8;
             }
             else {
-                captured_position -= 8;
+                captured_square -= 8;
             }
-            new_game.piece_position[!self.side as usize][Pieces::PAWN as usize].pop_bit(captured_position);
-            new_game.occupancies[!self.side as usize].pop_bit(captured_position);
+            new_game.piece_positions[!self.side as usize][Pieces::PAWN as usize].pop_bit(captured_square);
+            new_game.occupancies[!self.side as usize].pop_bit(captured_square);
+            new_game.occupancies[Constants::BOTH_OCCUPANCIES].pop_bit(captured_square);
         }
 
-        //todo: update castle rights
+        //todo: update castle rights if king or rook moved
+
+        if move_made.piece_moved == Pieces::KING {
+            let used_rights = match self.side {
+                Color::WHITE => 0b1100,
+                Color::BLACK => 0b0011,
+            };
+            let new_castle_rights = new_game.castle_rights & !used_rights;
+            new_game.castle_rights = new_castle_rights;
+        }
+        else if move_made.piece_moved == Pieces::ROOK {
+            if let Some(used_rights) = match move_made.source_square {
+                0 => Some(CastleRights::BLACK_QUEEN),
+                7 => Some(CastleRights::BLACK_KING),
+                56 => Some(CastleRights::WHITE_QUEEN),
+                63 => Some(CastleRights::WHITE_KING),
+                _ => None,
+            } {
+                let new_castle_rights = new_game.castle_rights & !used_rights.as_int();
+                new_game.castle_rights = new_castle_rights;
+            }
+        }
         
         if move_made.castle {
-            let rook_old_square = move_made.target_square
+            let (rook_source_square, rook_target_square) = Self::rook_movement(move_made.target_square);
+            new_game.piece_positions[self.side as usize][Pieces::ROOK as usize].move_bit(rook_source_square, rook_target_square);
+            new_game.occupancies[self.side as usize].move_bit(rook_source_square, rook_target_square);
+            new_game.occupancies[Constants::BOTH_OCCUPANCIES].move_bit(rook_source_square, rook_target_square);
         }
 
-        new_game;
+        if move_made.piece_moved == Pieces::PAWN || move_made.capture.is_some() {
+            new_game.halfmove_timer = 0;
+        }
+        else {
+            new_game.halfmove_timer += 1;
+        }
+        if self.side == Color::BLACK {
+            new_game.fullmove_number += 1;
+        }
+        new_game.side = !new_game.side;
+
+        new_game
     }
 
-    fn rook_movement(king_target_square) -> (u8, u8, CastleRights) {
+    fn rook_movement(king_target_square: u8) -> (u8, u8) {
         match king_target_square {
-            62 => (63, 61, CastleRights::WHITE_KING),
-            58 => (56, 59, CastleRights::WHITE_QUEEN),
-            6 => (7, 5, CastleRights::BLACK_KING),
-            2 => (0, 3, CastleRights::BLACK_QUEEN),
+            62 => (63, 61),
+            58 => (56, 59),
+            6 => (7, 5),
+            2 => (0, 3),
+            _ => panic!("king tried to castle from invalid position"),
         }
     }
 
