@@ -509,9 +509,6 @@ impl Game {
 
     fn google_en_passant() {
         println!("holy hell!");
-        // i actually think I can add this to add_moves, if the piece that is moving is a pawn and
-        // it is capturing en_passant_target, then it is en_passant. also, I need to make sure when
-        // I generate pawn attacks that I let them attack en passant squares.
     }
 
     fn get_piece_positions(&self, side: Color, piece: Pieces) -> BitBoard{
