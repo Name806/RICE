@@ -2,27 +2,27 @@ use std::{ops, cmp};
 use serde::{Serialize, Deserialize};
 
 pub enum CastleRights {
-    WHITE_KING,
-    WHITE_QUEEN,
-    BLACK_KING,
-    BLACK_QUEEN,
+    WhiteKing,
+    WhiteQueen,
+    BlackKing,
+    BlackQueen,
 }
 
 impl CastleRights {
     pub fn as_int(&self) -> u8 {
         match self {
-            Self::WHITE_KING =>     0b1,
-            Self::WHITE_QUEEN =>   0b10,
-            Self::BLACK_KING =>   0b100,
-            Self::BLACK_QUEEN => 0b1000,
+            Self::WhiteKing =>     0b1,
+            Self::WhiteQueen =>   0b10,
+            Self::BlackKing =>   0b100,
+            Self::BlackQueen => 0b1000,
         }
     }
     pub fn int_to_castle_rights(i: u8) -> Self {
         match i {
-            0b1 => Self::WHITE_KING,
-            0b10 => Self::WHITE_QUEEN,
-            0b100 => Self::BLACK_KING,
-            0b1000 => Self::BLACK_QUEEN,
+            0b1 => Self::WhiteKing,
+            0b10 => Self::WhiteQueen,
+            0b100 => Self::BlackKing,
+            0b1000 => Self::BlackQueen,
             _ => panic!("wrong flag passed to int_to_castle_rights"),
         }
     }
@@ -44,7 +44,7 @@ pub fn direction_to_index(file: i8, rank: i8) -> usize {
     }
 }
 
-pub fn index_to_direction(index: usize) -> (i8, i8) {
+pub fn _index_to_direction(index: usize) -> (i8, i8) {
     match index {
         0 => (1, 0),
         1 => (1, 1),
@@ -99,12 +99,10 @@ impl BitBoard {
         Some(index)
     }
 
-    pub const SIZE: u8 = 64;
-    pub const WIDTH: u8 = 8;
-    pub fn display(&self) {
+    pub fn _display(&self) {
         println!();
-        for i in 0..Self::SIZE {
-            if i % Self::WIDTH == 0 {
+        for i in 0..64 {
+            if i % 8 == 0 {
                 println!();
             }
             let display_string = if self.get_bit(i as u8) { "X" } else { "-" };
@@ -201,10 +199,10 @@ impl ops::ShrAssign<u8> for BitBoard {
 pub struct Constants;
 
 impl Constants {
-    pub const WHITE: u8 = 0;
-    pub const BLACK: u8 = 1;
-    pub const BISHOP: u8 = 0;
-    pub const ROOK: u8 = 1;
+    pub const _WHITE: u8 = 0;
+    pub const _BLACK: u8 = 1;
+    pub const _BISHOP: u8 = 0;
+    pub const _ROOK: u8 = 1;
     pub const BOTH_OCCUPANCIES: usize = 2;
     pub const FILE_NAME: &'static str = "move_data.json";
 }
@@ -218,7 +216,7 @@ pub struct SlidingAttackData {
 }
 
 impl SlidingAttackData {
-    pub fn new(attacks: Vec<Vec<BitBoard>>, magic_numbers: Vec<BitBoard>, masks: Vec<BitBoard>, relevant_bits: Vec<u8>) -> Self {
+    pub fn _new(attacks: Vec<Vec<BitBoard>>, magic_numbers: Vec<BitBoard>, masks: Vec<BitBoard>, relevant_bits: Vec<u8>) -> Self {
         Self {
             attacks,
             magic_numbers,
@@ -273,7 +271,7 @@ impl Pieces {
             3 => Pieces::ROOK,
             4 => Pieces::QUEEN,
             5 => Pieces::KING,
-            _ => panic!("cannot parse int to piece"),
+            _ => panic!("cannot parse int to piece: {}", i),
         }
     }
 }
@@ -332,10 +330,10 @@ impl AllMoveData {
 
     pub fn get_castle_info(&self, rights: CastleRights, side: Color) -> Option<(u8, BitBoard)> {
         match (rights, side) {
-            (CastleRights::WHITE_KING, Color::WHITE) => Some((62, BitBoard((1 << 62) | (1 << 61)))),
-            (CastleRights::WHITE_QUEEN, Color::WHITE) => Some((58, BitBoard((1 << 59) | (1 << 58)))),
-            (CastleRights::BLACK_KING, Color::BLACK) => Some((6, BitBoard((1 << 5) | (1 << 6)))),
-            (CastleRights::BLACK_QUEEN, Color::BLACK) => Some((2, BitBoard((1 << 2) | (1 << 3)))),
+            (CastleRights::WhiteKing, Color::WHITE) => Some((62, BitBoard((1 << 62) | (1 << 61)))),
+            (CastleRights::WhiteQueen, Color::WHITE) => Some((58, BitBoard((1 << 59) | (1 << 58)))),
+            (CastleRights::BlackKing, Color::BLACK) => Some((6, BitBoard((1 << 5) | (1 << 6)))),
+            (CastleRights::BlackQueen, Color::BLACK) => Some((2, BitBoard((1 << 2) | (1 << 3)))),
             _ => None,
         }
     }
@@ -359,7 +357,7 @@ impl AllMoveData {
         self.get_direction(s1, file_dir, rank_dir) & self.get_direction(s2, -file_dir, -rank_dir)
     }
     
-    pub fn new(bishop_attack_data: SlidingAttackData, rook_attack_data: SlidingAttackData, leaping_attack_data: LeapingAttackData, promotion_ranks: Vec<BitBoard>, pawn_single_push_ranks: Vec<BitBoard>, pawn_double_push_ranks: Vec<BitBoard>, directions: Vec<Vec<BitBoard>>) -> Self {
+    pub fn _new(bishop_attack_data: SlidingAttackData, rook_attack_data: SlidingAttackData, leaping_attack_data: LeapingAttackData, promotion_ranks: Vec<BitBoard>, pawn_single_push_ranks: Vec<BitBoard>, pawn_double_push_ranks: Vec<BitBoard>, directions: Vec<Vec<BitBoard>>) -> Self {
         Self {
             bishop_attack_data,
             rook_attack_data,

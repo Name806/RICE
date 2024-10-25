@@ -1,14 +1,13 @@
 mod common;
 use common::Constants;
 use common::BitBoard;
-use common::SlidingAttackData;
-use common::LeapingAttackData;
 use common::AllMoveData;
 use common::CastleRights;
 use std::fs::File;
-use std::io::{self, Read};
+use std::io::Read;
 use common::{Color, Pieces};
-
+use std::env;
+use std::fmt;
 
 impl Pieces {
     fn parse_ascii(a: char) -> Option<Self> {
@@ -106,6 +105,27 @@ impl EncodedMove {
             en_passant,
             castle,
         }
+    }
+}
+
+impl fmt::Display for EncodedMove {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let decoded_move = self.decode();
+        let start_file = decoded_move.source_square % 8;
+        let start_rank = decoded_move.source_square / 8;
+        let end_file = decoded_move.target_square % 8;
+        let end_rank = decoded_move.target_square / 8;
+        let mut movement_string = format!("{}{}{}{}", (b'a' + start_file) as char, (b'1' + start_rank) as char, (b'a' + end_file) as char, (b'1' + end_rank));
+        if let Some(promotion_piece) = decoded_move.promoted_piece {
+            match promotion_piece {
+                Pieces::QUEEN => movement_string.push_str("Q"),
+                Pieces::KNIGHT => movement_string.push_str("N"),
+                Pieces::ROOK => movement_string.push_str("R"),
+                Pieces::BISHOP => movement_string.push_str("B"),
+                _ => panic!("promotion piece wrong"),
+            }
+        }
+        write!(f, "{}", movement_string)
     }
 }
 
@@ -231,10 +251,10 @@ impl Game {
         }
         else if move_made.piece_moved == Pieces::ROOK {
             if let Some(used_rights) = match move_made.source_square {
-                0 => Some(CastleRights::BLACK_QUEEN),
-                7 => Some(CastleRights::BLACK_KING),
-                56 => Some(CastleRights::WHITE_QUEEN),
-                63 => Some(CastleRights::WHITE_KING),
+                0 => Some(CastleRights::BlackQueen),
+                7 => Some(CastleRights::BlackKing),
+                56 => Some(CastleRights::WhiteQueen),
+                63 => Some(CastleRights::WhiteKing),
                 _ => None,
             } {
                 let new_castle_rights = new_game.castle_rights & !used_rights.as_int();
@@ -317,10 +337,10 @@ impl Game {
             
             for c in castle_rights.chars() {
                 let cr = match c {
-                    'K' => CastleRights::WHITE_KING.as_int(),
-                    'Q' => CastleRights::WHITE_QUEEN.as_int(),
-                    'k' => CastleRights::BLACK_KING.as_int(),
-                    'q' => CastleRights::BLACK_QUEEN.as_int(),
+                    'K' => CastleRights::WhiteKing.as_int(),
+                    'Q' => CastleRights::WhiteQueen.as_int(),
+                    'k' => CastleRights::BlackKing.as_int(),
+                    'q' => CastleRights::BlackQueen.as_int(),
                     _ => panic!("castle rights does not match"),
                 };
                 
@@ -347,11 +367,11 @@ impl Game {
         let mut attacked = BitBoard::new();
 
         for piece in 0..6 {
-            let mut piece_positions = self.piece_positions[self.side as usize][piece as usize];
+            let mut piece_positions = self.piece_positions[side as usize][piece as usize];
             while piece_positions.not_zero() {
                 let index = piece_positions.pop_ls1b().unwrap();
                 let piece = Pieces::int_to_piece(piece);
-                let attacks = move_data.get_attacks(index, &piece, self.side, &occupancy);
+                let attacks = move_data.get_attacks(index, &piece, side, &occupancy);
                 attacked |= attacks;
             }
         }
@@ -507,7 +527,7 @@ impl Game {
         piece_attacks
     }
 
-    fn google_en_passant() {
+    fn _google_en_passant() {
         println!("holy hell!");
     }
 
@@ -535,8 +555,8 @@ impl Game {
             let mut double_push = false;
             if piece_moved.clone() == Pieces::PAWN {
                 if (target_position & move_data.get_promotion_ranks(self.side)).not_zero() {
-                    const promotion_options: [Pieces; 4] = [Pieces::QUEEN, Pieces::BISHOP, Pieces::ROOK, Pieces::KNIGHT];
-                    for promoted_piece in promotion_options {
+                    const PROMOTION_OPTIONS: [Pieces; 4] = [Pieces::QUEEN, Pieces::BISHOP, Pieces::ROOK, Pieces::KNIGHT];
+                    for promoted_piece in PROMOTION_OPTIONS {
                         moves.push(Move {
                             source_square,
                             target_square,
@@ -580,17 +600,76 @@ impl Game {
     }
 }
 
-const starting_fen: &'static str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 0";
+const _STARTING_FEN: &'static str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 0";
 
 fn main() {
     let mut file = File::open(Constants::FILE_NAME).unwrap();
     let mut contents = String::new();
     file.read_to_string(&mut contents).unwrap();
     let all_move_data: AllMoveData = serde_json::from_str(&contents).unwrap();
-    println!("loaded move data"); // move data is loaded, program is ready
-    
-    let starting_game = Game::new_fen(String::from(starting_fen));
-    starting_game.piece_positions[Color::BLACK as usize][Pieces::PAWN as usize].display();
-    println!("castle rights: {:0b}", starting_game.castle_rights);
 
+    let args: Vec<String> = env::args().collect();
+    let depth: u32 = args[1].parse().expect("depth should be a number");
+    let fen = &args[2];
+
+    let moves = if args.len() > 3 {
+        args[3..].to_vec()
+    } else {
+        Vec::new()
+    };
+    let mut game = Game::new_fen(fen.clone());
+    for m in moves {
+        let mut chars = m.chars();
+        let file = chars.next().unwrap() as u8 - b'a';
+        let rank = chars.next().unwrap() as u8 - b'1';
+        let from_index = (rank * 8) + file;
+        let file = chars.next().unwrap() as u8 - b'a';
+        let rank = chars.next().unwrap() as u8 - b'1';
+        let to_index = (rank * 8) + file;
+        let mut promotion_piece: Option<Pieces> = None;
+        if let Some(promotion_char) = chars.next() {
+            let promotion_char = promotion_char.to_ascii_lowercase() as u8;
+            promotion_piece = match promotion_char {
+                b'q' => Some(Pieces::QUEEN),
+                b'n' => Some(Pieces::KNIGHT),
+                b'r' => Some(Pieces::ROOK),
+                b'b' => Some(Pieces::BISHOP),
+                _ => panic!("promotion char is not valid"),
+            };
+        }
+        let mut move_options = Vec::new();
+        game.generate_moves(&mut move_options, &all_move_data);
+        for move_option in move_options {
+            let decoded_option = move_option.decode();
+            if decoded_option.source_square == from_index && decoded_option.target_square == to_index && decoded_option.promoted_piece == promotion_piece {
+                game = game.make_move(&move_option);
+                break;
+            }
+        }
+    }
+
+    let mut move_options = Vec::new();
+    game.generate_moves(&mut move_options, &all_move_data);
+    let mut total_nodes = 0;
+    for game_move in move_options {
+        let move_nodes = count_nodes(depth, &game_move, &game, &all_move_data);
+        total_nodes += move_nodes;
+        println!("{} {}", game_move, move_nodes);
+    }
+
+    println!("\n{}", total_nodes);
+}
+
+fn count_nodes(depth: u32, game_move: &EncodedMove, game: &Game, move_data: &AllMoveData) -> u32 {
+    let game = game.make_move(game_move);
+
+    if depth == 0 { return 1; }
+    let mut move_list : Vec<EncodedMove> = Vec::new();
+    let game_state = game.generate_moves(&mut move_list, move_data);
+    if matches!(game_state, GameState::Draw | GameState::Checkmate) { return 1; }
+    let mut node_count = 0;
+    for new_move in move_list.iter() {
+        node_count += count_nodes(depth - 1, new_move, &game, move_data);
+    }
+    node_count
 }
