@@ -1,4 +1,4 @@
-use std::{ops, cmp};
+use std::{ops, cmp, fmt};
 use serde::{Serialize, Deserialize};
 
 pub enum CastleRights {
@@ -40,7 +40,7 @@ pub fn direction_to_index(file: i8, rank: i8) -> usize {
         (-1, -1) => 5, // left-up
         (0, -1) => 6, // up
         (1, -1) => 7, // right-up
-        _ => panic!("invalid direction"),
+        _ => panic!("invalid direction: {}, {}", file, rank),
     }
 }
 
@@ -98,23 +98,26 @@ impl BitBoard {
         self.pop_bit(index);
         Some(index)
     }
-
-    pub fn _display(&self) {
-        println!();
-        for i in 0..64 {
-            if i % 8 == 0 {
-                println!();
-            }
-            let display_string = if self.get_bit(i as u8) { "X" } else { "-" };
-            print!("{}", display_string);
-        }
-        println!("\n\n0b{:b}", self.0);
-        println!("0x{:x}", self.0);
-        println!("{}", self.0);
-    }
-
     pub fn not_zero(&self) -> bool { self.0 != 0 }
 }
+
+impl fmt::Display for BitBoard {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut result = String::from("\n");
+
+        for i in 0..64 {
+            if i % 8 == 0 {
+                result.push_str("\n");
+            }
+            let display_string = if self.get_bit(i as u8) { "X" } else { "-" };
+            result.push_str(display_string);
+        }
+        result.push_str(&format!("\n\n0b{:b}\n0x{:x}\n{}", self.0, self.0, self.0));
+        write!(f, "{}", result)
+   }
+}
+
+
 
 impl ops::Not for BitBoard {
     type Output = Self;
@@ -252,7 +255,7 @@ pub struct AllMoveData {
     directions: Vec<Vec<BitBoard>>,
 }
 
-#[derive(Copy, Clone, PartialEq)]
+#[derive(Copy, Clone, PartialEq, Debug)]
 pub enum Pieces {
     KING,
     PAWN,
@@ -265,12 +268,12 @@ pub enum Pieces {
 impl Pieces {
     pub fn int_to_piece(i: u8) -> Self {
         match i {
-            0 => Pieces::PAWN,
-            1 => Pieces::KNIGHT,
-            2 => Pieces::BISHOP,
-            3 => Pieces::ROOK,
-            4 => Pieces::QUEEN,
-            5 => Pieces::KING,
+            0 => Pieces::KING,
+            1 => Pieces::PAWN,
+            2 => Pieces::KNIGHT,
+            3 => Pieces::BISHOP,
+            4 => Pieces::ROOK,
+            5 => Pieces::QUEEN,
             _ => panic!("cannot parse int to piece: {}", i),
         }
     }
@@ -339,6 +342,7 @@ impl AllMoveData {
     }
 
     pub fn squares_between(&self, s1: u8, s2: u8) -> BitBoard {
+        if s1 == s2 { return BitBoard::new(); }
         let file_dir;
         let rank_dir;
         let file1 = s1 % 8;

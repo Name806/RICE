@@ -8,6 +8,9 @@ use std::io::Read;
 use common::{Color, Pieces};
 use std::env;
 use std::fmt;
+use std::fs::OpenOptions;
+use std::io::Write;
+use std::io;
 
 impl Pieces {
     fn parse_ascii(a: char) -> Option<Self> {
@@ -38,8 +41,8 @@ struct Move {
 
 
 impl Move {
-    const NONE: u32 = 1111;
-    const BIT_COUNTS: [u8; 7] = [6, 12, 10, 14, 18, 19, 20];
+    const NONE: u32 = 0b1111;
+    const BIT_COUNTS: [u8; 7] = [6, 12, 16, 20, 24, 25, 26];
     fn encode(self) -> EncodedMove {
         let mut move_code = 0_u32;
 
@@ -112,10 +115,10 @@ impl fmt::Display for EncodedMove {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let decoded_move = self.decode();
         let start_file = decoded_move.source_square % 8;
-        let start_rank = decoded_move.source_square / 8;
+        let start_rank = 7 - (decoded_move.source_square / 8);
         let end_file = decoded_move.target_square % 8;
-        let end_rank = decoded_move.target_square / 8;
-        let mut movement_string = format!("{}{}{}{}", (b'a' + start_file) as char, (b'1' + start_rank) as char, (b'a' + end_file) as char, (b'1' + end_rank));
+        let end_rank = 7 - (decoded_move.target_square / 8);
+        let mut movement_string = format!("{}{}{}{}", (b'a' + start_file) as char, (b'1' + start_rank) as char, (b'a' + end_file) as char, (b'1' + end_rank) as char);
         if let Some(promotion_piece) = decoded_move.promoted_piece {
             match promotion_piece {
                 Pieces::QUEEN => movement_string.push_str("Q"),
@@ -126,6 +129,43 @@ impl fmt::Display for EncodedMove {
             }
         }
         write!(f, "{}", movement_string)
+    }
+}
+
+impl fmt::Display for Game {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut result = String::from("\n");
+        result.push_str(&format!("white occupancy: {} \nblack occupancy: {} \nboth_occupancy: {}", self.occupancies[Color::WHITE as usize], self.occupancies[Color::BLACK as usize], self.occupancies[Constants::BOTH_OCCUPANCIES]));
+        'square: for square in 0..64 {
+            if square % 8 == 0 {
+                result.push_str("\n");
+            }
+            for side in 0..2 {
+                for piece in 0..6 {
+                    if self.piece_positions[side as usize][piece as usize].get_bit(square) {
+                        result.push_str(match (piece, side) {
+                            (0, 0) => "K",
+                            (1, 0) => "P",
+                            (2, 0) => "N",
+                            (3, 0) => "B",
+                            (4, 0) => "R",
+                            (5, 0) => "Q",
+                            (0, 1) => "k",
+                            (1, 1) => "p",
+                            (2, 1) => "n",
+                            (3, 1) => "b",
+                            (4, 1) => "r",
+                            (5, 1) => "q",
+                            _ => panic!("out of bounds: side: {}, piece: {}", side, piece)
+                        });
+                        continue 'square;
+                    }
+                }
+            }
+            result.push_str("-");
+        }
+
+        write!(f, "{}", result)
     }
 }
 
@@ -162,7 +202,7 @@ impl Game {
         let mut new_game = Self::new();
         for i in 0..self.piece_positions.len() {
             for j in 0..self.piece_positions[i].len() {
-                new_game.piece_positions[i][j] = BitBoard(self.piece_positions[j][i].0.clone());
+                new_game.piece_positions[i][j] = BitBoard(self.piece_positions[i][j].0.clone());
             }
         }
 
@@ -425,6 +465,7 @@ impl Game {
                 if self.castle_rights & flag == 0 { continue; }
                 if let Some((target_square, move_squares)) = move_data.get_castle_info(castle_rights, self.side) {
                     if (move_squares & king_danger_squares).not_zero() { continue; }
+                    if (move_squares & self.occupancies[Constants::BOTH_OCCUPANCIES]).not_zero() { continue; }
                     castle_attacks |= BitBoard::new_set(target_square);
                 }
             }
@@ -609,7 +650,7 @@ fn main() {
     let all_move_data: AllMoveData = serde_json::from_str(&contents).unwrap();
 
     let args: Vec<String> = env::args().collect();
-    let depth: u32 = args[1].parse().expect("depth should be a number");
+    let depth: u32 = args[1].parse().expect("depth should be a number: {}", args[1]);
     let fen = &args[2];
 
     let moves = if args.len() > 3 {
@@ -619,23 +660,25 @@ fn main() {
     };
     let mut game = Game::new_fen(fen.clone());
     for m in moves {
-        let mut chars = m.chars();
+        let mut chars = m.trim().chars();
         let file = chars.next().unwrap() as u8 - b'a';
-        let rank = chars.next().unwrap() as u8 - b'1';
+        let rank = 7 - (chars.next().unwrap() as u8 - b'1');
         let from_index = (rank * 8) + file;
         let file = chars.next().unwrap() as u8 - b'a';
-        let rank = chars.next().unwrap() as u8 - b'1';
+        let rank = 7 - (chars.next().unwrap() as u8 - b'1');
         let to_index = (rank * 8) + file;
         let mut promotion_piece: Option<Pieces> = None;
         if let Some(promotion_char) = chars.next() {
             let promotion_char = promotion_char.to_ascii_lowercase() as u8;
-            promotion_piece = match promotion_char {
-                b'q' => Some(Pieces::QUEEN),
-                b'n' => Some(Pieces::KNIGHT),
-                b'r' => Some(Pieces::ROOK),
-                b'b' => Some(Pieces::BISHOP),
-                _ => panic!("promotion char is not valid"),
-            };
+            if promotion_char != 32 {
+                promotion_piece = match promotion_char {
+                    b'q' => Some(Pieces::QUEEN),
+                    b'n' => Some(Pieces::KNIGHT),
+                    b'r' => Some(Pieces::ROOK),
+                    b'b' => Some(Pieces::BISHOP),
+                    _ => panic!("promotion char is not valid: {}", promotion_char),
+                };
+            }
         }
         let mut move_options = Vec::new();
         game.generate_moves(&mut move_options, &all_move_data);
@@ -648,16 +691,29 @@ fn main() {
         }
     }
 
+
+
     let mut move_options = Vec::new();
     game.generate_moves(&mut move_options, &all_move_data);
     let mut total_nodes = 0;
+
+    let mut log_file = OpenOptions::new().create(true).append(true).open("perftree_output.log").expect("failed to open log file");
+    let mut output = String::new();
     for game_move in move_options {
         let move_nodes = count_nodes(depth, &game_move, &game, &all_move_data);
         total_nodes += move_nodes;
-        println!("{} {}", game_move, move_nodes);
+        output.push_str(&format!("{} {}\n", game_move, move_nodes));
+        //println!("{} {}", game_move, move_nodes);
     }
 
-    println!("\n{}", total_nodes);
+    output.push_str("\n");
+    output.push_str(&format!("{}\n", total_nodes));
+    //println!("{}", output);
+    output = output.trim().to_string();
+    write!(io::stdout(), "{}", output).expect("failed to write to stdout");
+    write!(log_file, "{}", output).expect("failed to write to log");
+    //println!();
+    //println!("{}", total_nodes);
 }
 
 fn count_nodes(depth: u32, game_move: &EncodedMove, game: &Game, move_data: &AllMoveData) -> u32 {

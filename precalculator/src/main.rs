@@ -20,13 +20,13 @@ fn main() {
     let mut b_file = BitBoard::new();
     let mut g_file = BitBoard::new();
     let mut h_file = BitBoard::new();
-    for i in 0..BitBoard::WIDTH {
+    for i in 0..8 {
         let rank = i * 8;
         a_file.set_bit(rank);
         b_file.set_bit(rank + 1);
 
-        g_file.set_bit(rank + BitBoard::WIDTH - 2);
-        h_file.set_bit(rank + BitBoard::WIDTH - 1);
+        g_file.set_bit(rank + 8 - 2);
+        h_file.set_bit(rank + 8 - 1);
     }
     let not_files = NotFiles {
         a: !a_file,
@@ -49,12 +49,12 @@ fn main() {
         white_pawn_starting_file.set_bit(48 + i);
     }
 
-    for i in 0..BitBoard::SIZE {
+    for i in 0..64 {
         let index = i as usize;
-        pawn_attacks[Constants::WHITE as usize][index] = mask_pawn_attacks(Constants::WHITE, i, &not_files);
-        pawn_attacks[Constants::BLACK as usize][index] = mask_pawn_attacks(Constants::BLACK, i, &not_files);
-        pawn_moves[Constants::WHITE as usize][index] = mask_pawn_moves(Constants::WHITE, i, white_pawn_starting_file, black_pawn_starting_file);
-        pawn_moves[Constants::BLACK as usize][index] = mask_pawn_moves(Constants::BLACK, i, white_pawn_starting_file, black_pawn_starting_file);
+        pawn_attacks[Color::WHITE as usize][index] = mask_pawn_attacks(Color::WHITE, i, &not_files);
+        pawn_attacks[Color::BLACK as usize][index] = mask_pawn_attacks(Color::BLACK, i, &not_files);
+        pawn_moves[Color::WHITE as usize][index] = mask_pawn_moves(Color::WHITE, i, white_pawn_starting_file, black_pawn_starting_file);
+        pawn_moves[Color::BLACK as usize][index] = mask_pawn_moves(Color::BLACK, i, white_pawn_starting_file, black_pawn_starting_file);
 
         knight_attacks[index] = mask_knight_attacks(i, &not_files);
         king_attacks[index] = mask_king_attacks(i, &not_files);
@@ -144,21 +144,24 @@ fn squares_in_direction(square: u8, file_dir: i8, rank_dir: i8) -> BitBoard {
     result
 }
 
-fn mask_pawn_moves(side: u8, square: u8, white_pawn_starting_file: BitBoard, black_pawn_starting_file: BitBoard) -> BitBoard {
-    let mut position = BitBoard::new();
-    position.set_bit(square);
+fn mask_pawn_moves(side: Color, square: u8, white_pawn_starting_file: BitBoard, black_pawn_starting_file: BitBoard) -> BitBoard {
     let mut moves = BitBoard::new();
-    if side == Constants::WHITE {
-        moves |= position << 8;
-        if (position & white_pawn_starting_file).not_zero() {
-            moves |= position << 16;
+    if side == Color::WHITE {
+        if square < 8 { return moves; } 
+        moves.set_bit(square - 8);
+        if white_pawn_starting_file.get_bit(square) {
+            moves.set_bit(square - 16)
         }
     }
-    else if side == Constants::BLACK {
-        moves |= position >> 8;
-        if (position & black_pawn_starting_file).not_zero() {
-            moves |= position >> 16;
+    else if side == Color::BLACK {
+        if square >= 56 { return moves; }
+        moves.set_bit(square + 8);
+        if black_pawn_starting_file.get_bit(square) {
+            moves.set_bit(square + 16);
         }
+    }
+    if (square >= 48 && square < 56) || (square >= 8 && square < 16) {
+        println!("square: {}, side: {} \nmoves: {}", square, side as u8, moves);
     }
     moves
 }
@@ -243,12 +246,12 @@ fn find_magic_number(square: u8, relevant_bits: u8, piece: u8, state: &mut u32) 
     panic!("magic number failed!: {}", square);
 }
 
-fn mask_pawn_attacks(side: u8, index: u8, not_files: &NotFiles) -> BitBoard {
+fn mask_pawn_attacks(side: Color, index: u8, not_files: &NotFiles) -> BitBoard {
     let mut attacks = BitBoard::new();
     let mut piece_position = BitBoard::new();
     piece_position.set_bit(index);
 
-    if side == Constants::WHITE {
+    if side == Color::WHITE {
         if ((piece_position >> 7) & not_files.a).not_zero() { attacks |= piece_position >> 7; }; 
         if ((piece_position >> 9) & not_files.h).not_zero() { attacks |= piece_position >> 9; };
     }
