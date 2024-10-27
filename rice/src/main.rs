@@ -121,10 +121,10 @@ impl fmt::Display for EncodedMove {
         let mut movement_string = format!("{}{}{}{}", (b'a' + start_file) as char, (b'1' + start_rank) as char, (b'a' + end_file) as char, (b'1' + end_rank) as char);
         if let Some(promotion_piece) = decoded_move.promoted_piece {
             match promotion_piece {
-                Pieces::QUEEN => movement_string.push_str("Q"),
-                Pieces::KNIGHT => movement_string.push_str("N"),
-                Pieces::ROOK => movement_string.push_str("R"),
-                Pieces::BISHOP => movement_string.push_str("B"),
+                Pieces::QUEEN => movement_string.push_str("q"),
+                Pieces::KNIGHT => movement_string.push_str("n"),
+                Pieces::ROOK => movement_string.push_str("r"),
+                Pieces::BISHOP => movement_string.push_str("b"),
                 _ => panic!("promotion piece wrong"),
             }
         }
@@ -170,7 +170,7 @@ impl fmt::Display for Game {
             Color::WHITE => String::from("w"),
             Color::BLACK => String::from("b"),
         };
-        result.push_str(&format!("side: {}", side_string));
+        result.push_str(&format!("side: {}, castle rights: {:b}", side_string, self.castle_rights));
 
         write!(f, "{}", result)
     }
@@ -249,6 +249,19 @@ impl Game {
         if let Some(piece_captured) = move_made.capture {
             new_game.piece_positions[!self.side as usize][piece_captured as usize].pop_bit(move_made.target_square);
             new_game.occupancies[!self.side as usize].pop_bit(move_made.target_square);
+
+            if piece_captured == Pieces::ROOK {
+                if let Some(used_rights) = match move_made.target_square {
+                    0 => Some(CastleRights::BlackQueen),
+                    7 => Some(CastleRights::BlackKing),
+                    56 => Some(CastleRights::WhiteQueen),
+                    63 => Some(CastleRights::WhiteKing),
+                    _ => None,
+                } {
+                    let new_castle_rights = new_game.castle_rights & !used_rights.as_int();
+                    new_game.castle_rights = new_castle_rights;
+                }
+            }
         }
 
         // promotion
@@ -289,8 +302,8 @@ impl Game {
 
         if move_made.piece_moved == Pieces::KING {
             let used_rights = match self.side {
-                Color::WHITE => 0b1100,
-                Color::BLACK => 0b0011,
+                Color::WHITE => 0b0011,
+                Color::BLACK => 0b1100,
             };
             let new_castle_rights = new_game.castle_rights & !used_rights;
             new_game.castle_rights = new_castle_rights;
@@ -381,12 +394,14 @@ impl Game {
             
             game.side = side;
             
+            game.castle_rights = 0;
             for c in castle_rights.chars() {
                 let cr = match c {
                     'K' => CastleRights::WhiteKing.as_int(),
                     'Q' => CastleRights::WhiteQueen.as_int(),
                     'k' => CastleRights::BlackKing.as_int(),
                     'q' => CastleRights::BlackQueen.as_int(),
+                    '-' => break,
                     _ => panic!("castle rights does not match"),
                 };
                 
@@ -394,8 +409,8 @@ impl Game {
             }
             
             if *en_passant_target != "-" {
-                let file = en_passant_target.chars().nth(1).unwrap() as u8 - b'a';
-                let rank = en_passant_target.chars().nth(2).unwrap() as u8 - b'0';
+                let file = en_passant_target.chars().nth(0).unwrap() as u8 - b'a';
+                let rank = 7 - (en_passant_target.chars().nth(1).unwrap() as u8 - b'1');
                 let index = (rank * 8) + file;
                 game.en_passant = Some(index);
             }
@@ -471,7 +486,8 @@ impl Game {
                 if self.castle_rights & flag == 0 { continue; }
                 if let Some((target_square, move_squares)) = move_data.get_castle_info(castle_rights, self.side) {
                     if (move_squares & king_danger_squares).not_zero() { continue; }
-                    if (move_squares & self.occupancies[Constants::BOTH_OCCUPANCIES]).not_zero() { continue; }
+                    let (source_square, _) = Self::rook_movement(target_square);
+                    if (move_data.squares_between(source_square, king_square) & self.occupancies[Constants::BOTH_OCCUPANCIES]).not_zero() { continue; }
                     castle_attacks |= BitBoard::new_set(target_square);
                 }
             }
@@ -534,8 +550,8 @@ impl Game {
         }
     }
 
-    fn check_en_passant_special_case(&self, king_square: u8, both_occupancy: &BitBoard, piece_attacks: &BitBoard, passant_position: &BitBoard, move_data: &AllMoveData) -> bool {
-        if !(*piece_attacks & *passant_position).not_zero() { return false; }
+    fn check_en_passant_special_case(&self, king_square: u8, both_occupancy: &BitBoard, piece_attacks: &BitBoard, en_passant_square: u8, move_data: &AllMoveData) -> bool {
+        if !(*piece_attacks & BitBoard::new_set(en_passant_square)).not_zero() { return false; }
         let passant_rank = move_data.get_pawn_double_push_ranks(!self.side);
         if !(passant_rank & BitBoard::new_set(king_square)).not_zero() { return false; }
         const STRAIGHT_SLIDING_PIECES: [Pieces; 2] = [Pieces::ROOK, Pieces::QUEEN];
@@ -556,10 +572,15 @@ impl Game {
         if piece_type == Pieces::PAWN {
             let mut pawn_attack_mask = self.occupancies[!self.side as usize] & *capture_mask;
             if let Some(en_passant_square) = self.en_passant {
-                let passant_position = BitBoard::new_set(en_passant_square);
-                pawn_attack_mask |= passant_position;
-                if self.check_en_passant_special_case(king_square, both_occupancy, &piece_attacks, &passant_position, move_data) {
-                    pawn_attack_mask = BitBoard::new();
+                let double_pushed_piece_square = match !self.side {
+                    Color::WHITE => en_passant_square - 8,
+                    Color::BLACK => en_passant_square + 8,
+                };
+                if (BitBoard::new_set(double_pushed_piece_square) & *capture_mask).not_zero() {
+                    pawn_attack_mask.set_bit(en_passant_square);
+                }
+                if self.check_en_passant_special_case(king_square, both_occupancy, &piece_attacks, en_passant_square, move_data) {
+                    pawn_attack_mask.pop_bit(en_passant_square);
                 }
             }
             let pawn_attacks = piece_attacks & pawn_attack_mask;
@@ -588,10 +609,8 @@ impl Game {
 
     
     fn add_moves(&self, all_moves: &mut Vec<EncodedMove>, source_square: u8, target_squares: &BitBoard, piece_moved: Pieces, castle: bool, move_data: &AllMoveData) {
-        let mut moves: Vec<EncodedMove> = Vec::new();
         let mut target_squares = target_squares.clone();
-        while target_squares.not_zero() {
-            let target_square = target_squares.pop_ls1b().expect("target_squares not zero");
+        'target_square: while let Some(target_square) = target_squares.pop_ls1b() {
             let mut target_position = BitBoard::new();
             target_position.set_bit(target_square);
             let mut capture: Option<Pieces> = None;
@@ -606,6 +625,7 @@ impl Game {
             let mut double_push = false;
             if piece_moved.clone() == Pieces::PAWN {
                 if (target_position & move_data.get_promotion_ranks(self.side)).not_zero() {
+                    let mut moves: Vec<EncodedMove> = Vec::new();
                     const PROMOTION_OPTIONS: [Pieces; 4] = [Pieces::QUEEN, Pieces::BISHOP, Pieces::ROOK, Pieces::KNIGHT];
                     for promoted_piece in PROMOTION_OPTIONS {
                         moves.push(Move {
@@ -619,7 +639,8 @@ impl Game {
                             castle,
                         }.encode());
                     }
-                    return;
+                    all_moves.extend(moves.clone());
+                    continue 'target_square;
                 }
 
                 if let Some(en_passant_square) = self.en_passant {
@@ -636,7 +657,7 @@ impl Game {
             if en_passant {
                 capture = Some(Pieces::PAWN);
             }
-            moves.push(Move {
+            let calculated_move = Move {
                 source_square,
                 target_square,
                 piece_moved,
@@ -645,9 +666,9 @@ impl Game {
                 en_passant,
                 double_push,
                 castle,
-            }.encode());
+            }.encode();
+            all_moves.push(calculated_move);
         }
-        all_moves.extend(moves);
     }
 }
 
@@ -671,13 +692,13 @@ fn perftree(args: Vec<String>, all_move_data: &AllMoveData) {
         let to_index = (rank * 8) + file;
         let mut promotion_piece: Option<Pieces> = None;
         if let Some(promotion_char) = chars.next() {
-            let promotion_char = promotion_char.to_ascii_lowercase() as u8;
+            let promotion_char = promotion_char as u8;
             if promotion_char != 32 {
                 promotion_piece = match promotion_char {
-                    b'q' => Some(Pieces::QUEEN),
-                    b'n' => Some(Pieces::KNIGHT),
-                    b'r' => Some(Pieces::ROOK),
-                    b'b' => Some(Pieces::BISHOP),
+                    b'q' | b'Q' => Some(Pieces::QUEEN),
+                    b'n' | b'N' => Some(Pieces::KNIGHT),
+                    b'r' | b'R' => Some(Pieces::ROOK),
+                    b'b' | b'B' => Some(Pieces::BISHOP),
                     _ => panic!("promotion char is not valid: {}", promotion_char),
                 };
             }
