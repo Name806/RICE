@@ -736,16 +736,7 @@ fn perftree(args: Vec<String>, all_move_data: &AllMoveData) {
     write!(log_file, "{}", output).expect("failed to write to log");
 }
 
-const STARTING_FEN: &'static str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
-
-    //source_square: u8,
-    //target_square: u8,
-    //piece_moved: Pieces,
-    //promoted_piece: Option<Pieces>,
-    //capture: Option<Pieces>,
-    //double_push: bool,
-    //en_passant: bool,
-    //castle: bool,
+const _STARTING_FEN: &'static str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
 fn main() {
     let mut file = File::open(Constants::FILE_NAME).unwrap();
@@ -758,32 +749,6 @@ fn main() {
         perftree(args, &all_move_data);
         return;
     }
-    let mut test_game = Game::new_fen(String::from(STARTING_FEN));
-    println!("\n\n\n{}", test_game);
-    let test_move = Move {
-        source_square: 48,
-        target_square: 40,
-        piece_moved: Pieces::PAWN,
-        promoted_piece: None,
-        capture: None,
-        double_push: false,
-        en_passant: false,
-        castle: false,
-    }.encode();
-    test_game = test_game.make_move(&test_move);
-    println!("\n\n\n{}", test_game);
-    let test_move = Move {
-        source_square: 8,
-        target_square: 16,
-        piece_moved: Pieces::PAWN,
-        capture: None,
-        promoted_piece: None,
-        double_push: false,
-        en_passant: false,
-        castle: false,
-    }.encode();
-    test_game = test_game.make_move(&test_move);
-    println!("\n\n\n{}", test_game);
 }
 
 fn count_nodes(depth: u32, game_move: &EncodedMove, game: &Game, move_data: &AllMoveData) -> u32 {
