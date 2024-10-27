@@ -641,20 +641,14 @@ impl Game {
     }
 }
 
-const _STARTING_FEN: &'static str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 0";
+const _STARTING_FEN: &'static str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
-fn main() {
-    let mut file = File::open(Constants::FILE_NAME).unwrap();
-    let mut contents = String::new();
-    file.read_to_string(&mut contents).unwrap();
-    let all_move_data: AllMoveData = serde_json::from_str(&contents).unwrap();
+fn perftree(args: Vec<String>, all_move_data: &AllMoveData) {
+    let depth: u32 = args[2].parse().expect("depth should be a number");
+    let fen = &args[3];
 
-    let args: Vec<String> = env::args().collect();
-    let depth: u32 = args[1].parse().expect("depth should be a number: {}", args[1]);
-    let fen = &args[2];
-
-    let moves = if args.len() > 3 {
-        args[3..].to_vec()
+    let moves = if args.len() > 4 {
+        args[4..].to_vec()
     } else {
         Vec::new()
     };
@@ -691,8 +685,6 @@ fn main() {
         }
     }
 
-
-
     let mut move_options = Vec::new();
     game.generate_moves(&mut move_options, &all_move_data);
     let mut total_nodes = 0;
@@ -700,20 +692,28 @@ fn main() {
     let mut log_file = OpenOptions::new().create(true).append(true).open("perftree_output.log").expect("failed to open log file");
     let mut output = String::new();
     for game_move in move_options {
-        let move_nodes = count_nodes(depth, &game_move, &game, &all_move_data);
+        let move_nodes = count_nodes(depth - 1, &game_move, &game, &all_move_data);
         total_nodes += move_nodes;
         output.push_str(&format!("{} {}\n", game_move, move_nodes));
-        //println!("{} {}", game_move, move_nodes);
     }
 
     output.push_str("\n");
     output.push_str(&format!("{}\n", total_nodes));
-    //println!("{}", output);
     output = output.trim().to_string();
     write!(io::stdout(), "{}", output).expect("failed to write to stdout");
     write!(log_file, "{}", output).expect("failed to write to log");
-    //println!();
-    //println!("{}", total_nodes);
+}
+
+fn main() {
+    let mut file = File::open(Constants::FILE_NAME).unwrap();
+    let mut contents = String::new();
+    file.read_to_string(&mut contents).unwrap();
+    let all_move_data: AllMoveData = serde_json::from_str(&contents).unwrap();
+
+    let args: Vec<String> = env::args().collect();
+    if args.len() > 1 && args[1] == "perftree" {
+        perftree(args, &all_move_data);
+    }
 }
 
 fn count_nodes(depth: u32, game_move: &EncodedMove, game: &Game, move_data: &AllMoveData) -> u32 {
