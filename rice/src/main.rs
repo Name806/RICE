@@ -165,6 +165,13 @@ impl fmt::Display for Game {
             result.push_str("-");
         }
 
+        result.push_str("\n");
+        let side_string = match self.side {
+            Color::WHITE => String::from("w"),
+            Color::BLACK => String::from("b"),
+        };
+        result.push_str(&format!("side: {}", side_string));
+
         write!(f, "{}", result)
     }
 }
@@ -242,7 +249,6 @@ impl Game {
         if let Some(piece_captured) = move_made.capture {
             new_game.piece_positions[!self.side as usize][piece_captured as usize].pop_bit(move_made.target_square);
             new_game.occupancies[!self.side as usize].pop_bit(move_made.target_square);
-            new_game.occupancies[Constants::BOTH_OCCUPANCIES].pop_bit(move_made.target_square);
         }
 
         // promotion
@@ -255,10 +261,10 @@ impl Game {
         if move_made.double_push {
             let mut target_position = move_made.target_square;
             if self.side == Color::WHITE {
-                target_position -= 8;
+                target_position += 8;
             }
             else {
-                target_position += 8;
+                target_position -= 8;
             }
             new_game.en_passant = Some(target_position);
         }
@@ -437,7 +443,7 @@ impl Game {
         let mut checking_pieces = BitBoard::new();
         for piece in 0..6 {
             if piece == Pieces::KING as u8 { continue; }
-            let attacks_from_king = move_data.get_attacks(king_square, &Pieces::int_to_piece(piece), !self.side, &both_occupancy);
+            let attacks_from_king = move_data.get_attacks(king_square, &Pieces::int_to_piece(piece), self.side, &both_occupancy);
             checking_pieces |= self.piece_positions[!self.side as usize][piece as usize] & attacks_from_king;
         }
         
@@ -481,6 +487,7 @@ impl Game {
             let mut opponent_positions = self.piece_positions[!self.side as usize][sliding_piece as usize];
             while let Some(opponent_square) = opponent_positions.pop_ls1b() {
                 let opponent_attacks = move_data.get_attacks(opponent_square, &sliding_piece, !self.side, &both_occupancy);
+                if !(move_data.squares_between(opponent_square, king_square)).not_zero() { continue; }
                 let pinned_pieces = opponent_attacks & queen_attacks_from_king;
                 self.calculate_pinned_moves(moves, &mut pieces_to_ignore, opponent_square, &pinned_pieces, king_square, &both_occupancy, &capture_mask, &block_mask, move_data);
             }
@@ -507,10 +514,12 @@ impl Game {
     }
 
     fn calculate_pinned_moves(&self, moves: &mut Vec<EncodedMove>, pieces_to_ignore: &mut BitBoard, opponent_square: u8, pinned_pieces: &BitBoard, king_square: u8, both_occupancy: &BitBoard, block_mask: &BitBoard, capture_mask: &BitBoard, move_data: &AllMoveData) {
+        let between_king_and_opponent = move_data.squares_between(opponent_square, king_square);
+        if !between_king_and_opponent.not_zero() { return; }
         for piece in 0..6 {
             let piece_type = Pieces::int_to_piece(piece);
             if piece_type == Pieces::KING { continue; }
-            let mut pinned_pieces_of_type = self.get_piece_positions(self.side, piece_type) & *pinned_pieces;
+            let mut pinned_pieces_of_type = self.get_piece_positions(self.side, piece_type) & *pinned_pieces & between_king_and_opponent;
             while let Some(pinned_square) = pinned_pieces_of_type.pop_ls1b() {
                 let mut pinned_position = BitBoard::new();
                 pinned_position.set_bit(pinned_square);
@@ -559,6 +568,7 @@ impl Game {
                 pawn_movement = BitBoard::new();
             }
             pawn_movement &= *block_mask;
+            pawn_movement &= !self.occupancies[!self.side as usize];
             piece_attacks = pawn_attacks | pawn_movement;
         }
         else {
@@ -641,14 +651,12 @@ impl Game {
     }
 }
 
-const _STARTING_FEN: &'static str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
-
 fn perftree(args: Vec<String>, all_move_data: &AllMoveData) {
     let depth: u32 = args[2].parse().expect("depth should be a number");
     let fen = &args[3];
 
     let moves = if args.len() > 4 {
-        args[4..].to_vec()
+        args[4..].join(" ").split_whitespace().map(String::from).collect::<Vec<_>>()
     } else {
         Vec::new()
     };
@@ -692,7 +700,10 @@ fn perftree(args: Vec<String>, all_move_data: &AllMoveData) {
     let mut log_file = OpenOptions::new().create(true).append(true).open("perftree_output.log").expect("failed to open log file");
     let mut output = String::new();
     for game_move in move_options {
-        let move_nodes = count_nodes(depth - 1, &game_move, &game, &all_move_data);
+        let mut move_nodes = 0;
+        if depth > 0 {
+            move_nodes = count_nodes(depth - 1, &game_move, &game, &all_move_data);
+        }
         total_nodes += move_nodes;
         output.push_str(&format!("{} {}\n", game_move, move_nodes));
     }
@@ -704,6 +715,17 @@ fn perftree(args: Vec<String>, all_move_data: &AllMoveData) {
     write!(log_file, "{}", output).expect("failed to write to log");
 }
 
+const STARTING_FEN: &'static str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+
+    //source_square: u8,
+    //target_square: u8,
+    //piece_moved: Pieces,
+    //promoted_piece: Option<Pieces>,
+    //capture: Option<Pieces>,
+    //double_push: bool,
+    //en_passant: bool,
+    //castle: bool,
+
 fn main() {
     let mut file = File::open(Constants::FILE_NAME).unwrap();
     let mut contents = String::new();
@@ -713,7 +735,34 @@ fn main() {
     let args: Vec<String> = env::args().collect();
     if args.len() > 1 && args[1] == "perftree" {
         perftree(args, &all_move_data);
+        return;
     }
+    let mut test_game = Game::new_fen(String::from(STARTING_FEN));
+    println!("\n\n\n{}", test_game);
+    let test_move = Move {
+        source_square: 48,
+        target_square: 40,
+        piece_moved: Pieces::PAWN,
+        promoted_piece: None,
+        capture: None,
+        double_push: false,
+        en_passant: false,
+        castle: false,
+    }.encode();
+    test_game = test_game.make_move(&test_move);
+    println!("\n\n\n{}", test_game);
+    let test_move = Move {
+        source_square: 8,
+        target_square: 16,
+        piece_moved: Pieces::PAWN,
+        capture: None,
+        promoted_piece: None,
+        double_push: false,
+        en_passant: false,
+        castle: false,
+    }.encode();
+    test_game = test_game.make_move(&test_move);
+    println!("\n\n\n{}", test_game);
 }
 
 fn count_nodes(depth: u32, game_move: &EncodedMove, game: &Game, move_data: &AllMoveData) -> u32 {
@@ -722,7 +771,7 @@ fn count_nodes(depth: u32, game_move: &EncodedMove, game: &Game, move_data: &All
     if depth == 0 { return 1; }
     let mut move_list : Vec<EncodedMove> = Vec::new();
     let game_state = game.generate_moves(&mut move_list, move_data);
-    if matches!(game_state, GameState::Draw | GameState::Checkmate) { return 1; }
+    if matches!(game_state, GameState::Draw | GameState::Checkmate) { return 0; }
     let mut node_count = 0;
     for new_move in move_list.iter() {
         node_count += count_nodes(depth - 1, new_move, &game, move_data);
