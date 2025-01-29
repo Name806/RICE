@@ -78,48 +78,30 @@ impl Move {
 struct EncodedMove(u32);
 
 impl EncodedMove {
-    fn decode(self) -> Move {
-        let source_square =   self.0 & 0b00000000000000000000000000111111;
-        let source_square = source_square as u8;
-        let target_square =  (self.0 & 0b00000000000000000000111111000000) >> Move::BIT_COUNTS[0];
-        let target_square = target_square as u8;
-        let piece_moved =    (self.0 & 0b00000000000000001111000000000000) >> Move::BIT_COUNTS[1];
-        let piece_moved = Pieces::int_to_piece(piece_moved as u8);
-        let promoted_piece = (self.0 & 0b00000000000011110000000000000000) >> Move::BIT_COUNTS[2];
-        let promoted_piece = match promoted_piece {
-            Move::NONE => None,
-            _ => Some(Pieces::int_to_piece(promoted_piece as u8)),
-        };
-        let capture =        (self.0 & 0b00000000111100000000000000000000) >> Move::BIT_COUNTS[3];
-        let capture = match capture {
-            Move::NONE => None,
-            _ => Some(Pieces::int_to_piece(capture as u8)),
-        };
-        let double_push =    (self.0 & 0b00000001000000000000000000000000) >> Move::BIT_COUNTS[4] != 0;
-        let en_passant =     (self.0 & 0b00000010000000000000000000000000) >> Move::BIT_COUNTS[5] != 0;
-        let castle =         (self.0 & 0b00000100000000000000000000000000) >> Move::BIT_COUNTS[6] != 0;
-        Move {
-            source_square,
-            target_square,
-            piece_moved,
-            promoted_piece,
-            capture,
-            double_push,
-            en_passant,
-            castle,
-        }
+    fn source_square(&self) -> u8 { (self.0 & 0x000000000000003F) as u8 }
+    fn target_square(&self) -> u8 { ((self.0 & 0x0000000000000FC0) >> Move::BIT_COUNTS[0]) as u8 }
+    fn piece_moved(&self) -> Pieces { Pieces::int_to_piece(((self.0 & 0x000000000000F000) >> Move::BIT_COUNTS[1]) as u8) }
+    fn promoted_piece(&self) -> Option<Pieces> { 
+        let promoted = (self.0 & 0x00000000000F0000) >> Move::BIT_COUNTS[2];
+        if promoted == Move::NONE { None } else { Some(Pieces::int_to_piece(promoted as u8)) }
     }
+    fn capture(&self) -> Option<Pieces> { 
+        let capture = (self.0 & 0x0000000000F00000) >> Move::BIT_COUNTS[3];
+        if capture == Move::NONE { None } else { Some(Pieces::int_to_piece(capture as u8)) }
+    }
+    fn double_push(&self) -> bool { (self.0 & 0x0000000001000000) >> Move::BIT_COUNTS[4] != 0 }
+    fn en_passant(&self) -> bool { (self.0 &  0x0000000002000000) >> Move::BIT_COUNTS[5] != 0 }
+    fn castle(&self) -> bool { (self.0 & 0x0000000004000000) >> Move::BIT_COUNTS[6] != 0 }
 }
 
 impl fmt::Display for EncodedMove {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let decoded_move = self.decode();
-        let start_file = decoded_move.source_square % 8;
-        let start_rank = 7 - (decoded_move.source_square / 8);
-        let end_file = decoded_move.target_square % 8;
-        let end_rank = 7 - (decoded_move.target_square / 8);
+        let start_file = self.source_square() % 8;
+        let start_rank = 7 - (self.source_square() / 8);
+        let end_file = self.target_square() % 8;
+        let end_rank = 7 - (self.target_square() / 8);
         let mut movement_string = format!("{}{}{}{}", (b'a' + start_file) as char, (b'1' + start_rank) as char, (b'a' + end_file) as char, (b'1' + end_rank) as char);
-        if let Some(promotion_piece) = decoded_move.promoted_piece {
+        if let Some(promotion_piece) = self.promoted_piece() {
             match promotion_piece {
                 Pieces::QUEEN => movement_string.push_str("q"),
                 Pieces::KNIGHT => movement_string.push_str("n"),
@@ -234,24 +216,27 @@ impl Game {
         new_game
     }
 
-    fn make_move(&self, encoded_move: &EncodedMove) -> Self {
-        let move_made = encoded_move.decode();
+    fn make_move(&self, move_made: &EncodedMove) -> Self {
         let mut new_game = self.deep_clone();
 
+        let moved_piece = move_made.piece_moved();
+        let move_source = move_made.source_square();
+        let move_target = move_made.target_square();
         // update piece position
-        new_game.piece_positions[self.side as usize][move_made.piece_moved as usize].move_bit(move_made.source_square, move_made.target_square);
+        new_game.piece_positions[self.side as usize][moved_piece as usize].move_bit(move_source, move_target);
 
         // update occupancy for moved piece
-        new_game.occupancies[self.side as usize].move_bit(move_made.source_square, move_made.target_square);
-        new_game.occupancies[Constants::BOTH_OCCUPANCIES].move_bit(move_made.source_square, move_made.target_square);
+        new_game.occupancies[self.side as usize].move_bit(move_source, move_target);
+        new_game.occupancies[Constants::BOTH_OCCUPANCIES].move_bit(move_source, move_target);
 
         // update if capture
-        if let Some(piece_captured) = move_made.capture {
-            new_game.piece_positions[!self.side as usize][piece_captured as usize].pop_bit(move_made.target_square);
-            new_game.occupancies[!self.side as usize].pop_bit(move_made.target_square);
+        let move_capture = move_made.capture();
+        if let Some(piece_captured) = move_capture {
+            new_game.piece_positions[!self.side as usize][piece_captured as usize].pop_bit(move_target);
+            new_game.occupancies[!self.side as usize].pop_bit(move_target);
 
             if piece_captured == Pieces::ROOK {
-                if let Some(used_rights) = match move_made.target_square {
+                if let Some(used_rights) = match move_target {
                     0 => Some(CastleRights::BlackQueen),
                     7 => Some(CastleRights::BlackKing),
                     56 => Some(CastleRights::WhiteQueen),
@@ -265,14 +250,14 @@ impl Game {
         }
 
         // promotion
-        if let Some(promoted_piece) = move_made.promoted_piece {
-            new_game.piece_positions[self.side as usize][Pieces::PAWN as usize].pop_bit(move_made.target_square);
-            new_game.piece_positions[self.side as usize][promoted_piece as usize].set_bit(move_made.target_square);
+        if let Some(promoted_piece) = move_made.promoted_piece() {
+            new_game.piece_positions[self.side as usize][Pieces::PAWN as usize].pop_bit(move_target);
+            new_game.piece_positions[self.side as usize][promoted_piece as usize].set_bit(move_target);
         }
 
         // update en passant target
-        if move_made.double_push {
-            let mut target_position = move_made.target_square;
+        if move_made.double_push() {
+            let mut target_position = move_target;
             if self.side == Color::WHITE {
                 target_position += 8;
             }
@@ -285,8 +270,8 @@ impl Game {
             new_game.en_passant = None;
         }
 
-        if move_made.en_passant {
-            let mut captured_square = move_made.target_square;
+        if move_made.en_passant() {
+            let mut captured_square = move_target;
             if self.side == Color::WHITE {
                 captured_square += 8;
             }
@@ -300,7 +285,7 @@ impl Game {
 
         //todo: update castle rights if king or rook moved
 
-        if move_made.piece_moved == Pieces::KING {
+        if moved_piece == Pieces::KING {
             let used_rights = match self.side {
                 Color::WHITE => 0b0011,
                 Color::BLACK => 0b1100,
@@ -308,8 +293,8 @@ impl Game {
             let new_castle_rights = new_game.castle_rights & !used_rights;
             new_game.castle_rights = new_castle_rights;
         }
-        else if move_made.piece_moved == Pieces::ROOK {
-            if let Some(used_rights) = match move_made.source_square {
+        else if moved_piece == Pieces::ROOK {
+            if let Some(used_rights) = match move_source {
                 0 => Some(CastleRights::BlackQueen),
                 7 => Some(CastleRights::BlackKing),
                 56 => Some(CastleRights::WhiteQueen),
@@ -321,14 +306,14 @@ impl Game {
             }
         }
         
-        if move_made.castle {
-            let (rook_source_square, rook_target_square) = Self::rook_movement(move_made.target_square);
+        if move_made.castle() {
+            let (rook_source_square, rook_target_square) = Self::rook_movement(move_target);
             new_game.piece_positions[self.side as usize][Pieces::ROOK as usize].move_bit(rook_source_square, rook_target_square);
             new_game.occupancies[self.side as usize].move_bit(rook_source_square, rook_target_square);
             new_game.occupancies[Constants::BOTH_OCCUPANCIES].move_bit(rook_source_square, rook_target_square);
         }
 
-        if move_made.piece_moved == Pieces::PAWN || move_made.capture.is_some() {
+        if moved_piece == Pieces::PAWN || move_capture.is_some() {
             new_game.halfmove_timer = 0;
         }
         else {
@@ -706,8 +691,7 @@ fn perftree(args: Vec<String>, all_move_data: &AllMoveData) {
         let mut move_options = Vec::new();
         game.generate_moves(&mut move_options, &all_move_data);
         for move_option in move_options {
-            let decoded_option = move_option.decode();
-            if decoded_option.source_square == from_index && decoded_option.target_square == to_index && decoded_option.promoted_piece == promotion_piece {
+            if move_option.source_square() == from_index && move_option.target_square() == to_index && move_option.promoted_piece() == promotion_piece {
                 game = game.make_move(&move_option);
                 break;
             }
