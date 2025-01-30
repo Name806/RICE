@@ -236,7 +236,7 @@ impl SlidingAttackData {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct LeapingAttackData {
     pub pawn_attacks: Vec<Vec<BitBoard>>,
     pub knight: Vec<BitBoard>,
@@ -244,7 +244,7 @@ pub struct LeapingAttackData {
     pub pawn_moves: Vec<Vec<BitBoard>>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct AllMoveData {
     bishop_attack_data: SlidingAttackData,
     rook_attack_data: SlidingAttackData,

@@ -419,6 +419,39 @@ impl Game {
         game
     }
 
+    pub fn parse_moves(&mut self, moves: Vec<String>,  move_data: &AllMoveData) {
+        for m in moves {
+            let mut chars = m.trim().chars();
+            let file = chars.next().unwrap() as u8 - b'a';
+            let rank = 7 - (chars.next().unwrap() as u8 - b'1');
+            let from_index = (rank * 8) + file;
+            let file = chars.next().unwrap() as u8 - b'a';
+            let rank = 7 - (chars.next().unwrap() as u8 - b'1');
+            let to_index = (rank * 8) + file;
+            let mut promotion_piece: Option<Pieces> = None;
+            if let Some(promotion_char) = chars.next() {
+                let promotion_char = promotion_char as u8;
+                if promotion_char != 32 {
+                    promotion_piece = match promotion_char {
+                        b'q' | b'Q' => Some(Pieces::QUEEN),
+                        b'n' | b'N' => Some(Pieces::KNIGHT),
+                        b'r' | b'R' => Some(Pieces::ROOK),
+                        b'b' | b'B' => Some(Pieces::BISHOP),
+                        _ => panic!("promotion char is not valid: {}", promotion_char),
+                    };
+                }
+            }
+            let mut move_options = Vec::new();
+            self.generate_moves(&mut move_options, move_data);
+            for move_option in move_options {
+                if move_option.source_square() == from_index && move_option.target_square() == to_index && move_option.promoted_piece() == promotion_piece {
+                    self.make_move(&move_option);
+                    break;
+                }
+            }
+        }
+    }
+
     fn get_attacked_squares(&self, side: Color, move_data: &AllMoveData, occupancy: &BitBoard) -> BitBoard {
         let mut attacked = BitBoard::new();
 

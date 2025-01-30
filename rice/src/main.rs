@@ -1,8 +1,10 @@
+mod engine;
 mod common;
 mod move_generation;
 
 use move_generation::{Game, EncodedMove, GameState};
 use common::{Constants, AllMoveData, Pieces};
+use engine::Engine;
 
 use std::fs::File;
 use std::io::Read;
@@ -29,42 +31,10 @@ fn perftree(args: Vec<String>, all_move_data: &AllMoveData) {
     let depth: u32 = args[2].parse().expect("depth should be a number");
     let fen = &args[3];
 
-    let moves = if args.len() > 4 {
-        args[4..].join(" ").split_whitespace().map(String::from).collect::<Vec<_>>()
-    } else {
-        Vec::new()
-    };
+
     let mut game = Game::new_fen(fen.clone());
-    for m in moves {
-        let mut chars = m.trim().chars();
-        let file = chars.next().unwrap() as u8 - b'a';
-        let rank = 7 - (chars.next().unwrap() as u8 - b'1');
-        let from_index = (rank * 8) + file;
-        let file = chars.next().unwrap() as u8 - b'a';
-        let rank = 7 - (chars.next().unwrap() as u8 - b'1');
-        let to_index = (rank * 8) + file;
-        let mut promotion_piece: Option<Pieces> = None;
-        if let Some(promotion_char) = chars.next() {
-            let promotion_char = promotion_char as u8;
-            if promotion_char != 32 {
-                promotion_piece = match promotion_char {
-                    b'q' | b'Q' => Some(Pieces::QUEEN),
-                    b'n' | b'N' => Some(Pieces::KNIGHT),
-                    b'r' | b'R' => Some(Pieces::ROOK),
-                    b'b' | b'B' => Some(Pieces::BISHOP),
-                    _ => panic!("promotion char is not valid: {}", promotion_char),
-                };
-            }
-        }
-        let mut move_options = Vec::new();
-        game.generate_moves(&mut move_options, all_move_data);
-        for move_option in move_options {
-            if move_option.source_square() == from_index && move_option.target_square() == to_index && move_option.promoted_piece() == promotion_piece {
-                game.make_move(&move_option);
-                break;
-            }
-        }
-    }
+    
+    game.parse_moves(args, all_move_data);
 
     let mut move_options = Vec::new();
     game.generate_moves(&mut move_options, all_move_data);
@@ -91,13 +61,14 @@ fn perftree(args: Vec<String>, all_move_data: &AllMoveData) {
     write!(log_file, "{}", output).expect("failed to write to log");
 }
 
-const _STARTING_FEN: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+const STARTING_FEN: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
-fn handle_uci() {
+fn handle_uci(move_data: &AllMoveData) {
     let stdin = io::stdin();
     let mut stdout = io::stdout();
 
     let mut buffer = String::new();
+    let mut engine = Engine::new(move_data);
     loop {
         buffer.clear();
         if stdin.read_line(&mut buffer).is_err() { continue; }
@@ -106,8 +77,32 @@ fn handle_uci() {
         if command.is_empty() { continue; }
 
         match command {
-            "uci" => println!("id name NAME"),
+            "uci" => {
+                let (name, author) = engine.get_id_info();
+                println!("id name {} author {}", name, author);
+                println!("uci ok");
+            },
             "isready" => println!("readyok"),
+            cmd if cmd.starts_with("position") => {
+                let parts: Vec<&str> = cmd.split_whitespace().collect();
+                let mut game = Game::new();
+                if parts[1] == "startpos" {
+                    game = Game::new_fen(String::from(STARTING_FEN));
+                } 
+                else if parts[1] == "fen" {
+                    game = Game::new_fen(parts[2..].join(" "));
+                }
+
+                if let Some(moves_index) = parts.iter().position(|&x| x == "moves") {
+                    let moves: Vec<String> = parts[moves_index + 1..].iter().map(|s| s.to_string()).collect();
+                    game.parse_moves(moves, move_data);
+                }
+                engine.set_game(game);
+            }
+            cmd if cmd.starts_with("go") => {
+                let m = engine.get_move();
+                println!("bestmove {}", m);
+            }
             "quit" => return,
             _ => (),
         }
@@ -128,7 +123,7 @@ fn main() {
         return;
     }
 
-    handle_uci();
+    handle_uci(&all_move_data);
 }
 
 fn count_nodes(depth: u32, game: &mut Game, move_data: &AllMoveData) -> u32 {
