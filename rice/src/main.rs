@@ -80,7 +80,7 @@ fn handle_uci(move_data: &AllMoveData) {
             "uci" => {
                 let (name, author) = engine.get_id_info();
                 println!("id name {} author {}", name, author);
-                println!("uci ok");
+                println!("uciok");
             },
             "isready" => println!("readyok"),
             cmd if cmd.starts_with("position") => {
