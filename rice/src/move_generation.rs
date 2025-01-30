@@ -618,7 +618,7 @@ impl Game {
             }
             let mut en_passant = false;
             let mut double_push = false;
-            if piece_moved.clone() == Pieces::PAWN {
+            if piece_moved == Pieces::PAWN {
                 if (target_position & move_data.get_promotion_ranks(self.side)).not_zero() {
                     let mut moves: Vec<EncodedMove> = Vec::new();
                     const PROMOTION_OPTIONS: [Pieces; 4] = [Pieces::QUEEN, Pieces::BISHOP, Pieces::ROOK, Pieces::KNIGHT];
@@ -626,7 +626,7 @@ impl Game {
                         moves.push(Move {
                             source_square,
                             target_square,
-                            piece_moved: piece_moved.clone(),
+                            piece_moved,
                             capture,
                             promoted_piece: Some(promoted_piece),
                             en_passant,
@@ -643,10 +643,8 @@ impl Game {
                         en_passant = true;
                     }
                 }
-                if (target_position & move_data.get_pawn_double_push_ranks(self.side)).not_zero() {
-                    if (source_square >= 8 && source_square < 16) || (source_square >= 48 && source_square < 56) {
+                if (target_position & move_data.get_pawn_double_push_ranks(self.side)).not_zero() && ((8..16).contains(&source_square) || (48..56).contains(&source_square)) {
                         double_push = true;
-                    }
                 }
             }
             if en_passant {
