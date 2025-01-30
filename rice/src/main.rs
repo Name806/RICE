@@ -93,6 +93,29 @@ fn perftree(args: Vec<String>, all_move_data: &AllMoveData) {
 
 const _STARTING_FEN: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
+fn handle_uci() {
+    let stdin = io::stdin();
+    let mut stdout = io::stdout();
+
+    let mut buffer = String::new();
+    loop {
+        buffer.clear();
+        if stdin.read_line(&mut buffer).is_err() { continue; }
+
+        let command = buffer.trim();
+        if command.is_empty() { continue; }
+
+        match command {
+            "uci" => println!("id name NAME"),
+            "isready" => println!("readyok"),
+            "quit" => return,
+            _ => (),
+        }
+
+        stdout.flush().unwrap();
+    }
+}
+
 fn main() {
     let mut file = File::open(Constants::FILE_NAME).unwrap();
     let mut contents = String::new();
@@ -102,7 +125,10 @@ fn main() {
     let args: Vec<String> = env::args().collect();
     if args.len() > 1 && args[1] == "perftree" {
         perftree(args, &all_move_data);
+        return;
     }
+
+    handle_uci();
 }
 
 fn count_nodes(depth: u32, game: &mut Game, move_data: &AllMoveData) -> u32 {
