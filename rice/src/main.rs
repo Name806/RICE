@@ -158,6 +158,16 @@ impl fmt::Display for Game {
     }
 }
 
+struct HistoryEntry {
+    move_made: EncodedMove,
+    en_passant: Option<u8>,
+    castle_rights: u8,
+    halfmove_timer: u8,
+    fullmove_number: u16,
+    capture_square: u8,
+    rook_movement: (u8, u8),
+}
+
 struct Game {
     piece_positions: Vec<Vec<BitBoard>>,
     occupancies: Vec<BitBoard>,
@@ -166,6 +176,7 @@ struct Game {
     castle_rights: u8,
     halfmove_timer: u8,
     fullmove_number: u16,
+    history: Vec<HistoryEntry>,
 }
 
 enum GameState {
@@ -184,56 +195,71 @@ impl Game {
             castle_rights: 0b1111,
             halfmove_timer: 0,
             fullmove_number: 0,
+            history: Vec::new(),
         }
     }
 
-    fn deep_clone(&self) -> Self {
-        let mut new_game = Self::new();
-        for i in 0..self.piece_positions.len() {
-            for j in 0..self.piece_positions[i].len() {
-                new_game.piece_positions[i][j] = BitBoard(self.piece_positions[i][j].0.clone());
-            }
+    fn unmake_move(&mut self) {
+        let history = self.history.pop().expect("unmake move called on game with no history");
+
+        let piece_moved = history.move_made.piece_moved();
+        let source_square = history.move_made.source_square();
+        let target_square = history.move_made.target_square();
+
+        // update by reversing move
+
+        self.side = !self.side;
+        self.piece_positions[self.side as usize][piece_moved as usize].move_bit(target_square, source_square);
+        self.occupancies[self.side as usize].move_bit(target_square, source_square);
+        self.occupancies[Constants::BOTH_OCCUPANCIES].move_bit(target_square, source_square);
+
+        if let Some(captured_piece) = history.move_made.capture() {
+            self.piece_positions[!self.side as usize][captured_piece as usize].set_bit(history.capture_square);
+            self.occupancies[!self.side as usize].set_bit(history.capture_square);
+        self.occupancies[Constants::BOTH_OCCUPANCIES].set_bit(history.capture_square);
+        }
+        
+        if history.move_made.castle() {
+            let (rook_source, rook_target) = history.rook_movement;
+            self.piece_positions[self.side as usize][Pieces::ROOK as usize].move_bit(rook_target, rook_source);
+            self.occupancies[self.side as usize].move_bit(rook_target, rook_source);
+            self.occupancies[Constants::BOTH_OCCUPANCIES].move_bit(rook_target, rook_source);
         }
 
-        for i in 0..self.occupancies.len() {
-            new_game.occupancies[i] = BitBoard(self.occupancies[i].0);
+        if let Some(promoted_piece) = history.move_made.promoted_piece() {
+            self.piece_positions[self.side as usize][promoted_piece as usize].pop_bit(target_square);
+            self.piece_positions[self.side as usize][Pieces::PAWN as usize].set_bit(target_square);
         }
 
-        new_game.side = match self.side {
-            Color::WHITE => Color::WHITE,
-            Color::BLACK => Color::BLACK,
-        };
+        // copy values
 
-        new_game.en_passant = match self.en_passant {
-            Some(index) => Some(index.clone()),
-            None => None,
-        };
-
-        new_game.castle_rights = self.castle_rights.clone();
-        new_game.halfmove_timer = self.halfmove_timer.clone();
-        new_game.fullmove_number = self.fullmove_number.clone();
-
-        new_game
+        self.castle_rights = history.castle_rights;
+        self.en_passant = history.en_passant;
+        self.fullmove_number = history.fullmove_number;
+        self.halfmove_timer = history.halfmove_timer;
     }
 
-    fn make_move(&self, move_made: &EncodedMove) -> Self {
-        let mut new_game = self.deep_clone();
-
+    fn make_move(&mut self, move_made: &EncodedMove) {
         let moved_piece = move_made.piece_moved();
         let move_source = move_made.source_square();
         let move_target = move_made.target_square();
+
+        // variables to keep track of game history
+        let mut capture_square = move_target;
+        let mut rook_movement = (0, 0);
+
         // update piece position
-        new_game.piece_positions[self.side as usize][moved_piece as usize].move_bit(move_source, move_target);
+        self.piece_positions[self.side as usize][moved_piece as usize].move_bit(move_source, move_target);
 
         // update occupancy for moved piece
-        new_game.occupancies[self.side as usize].move_bit(move_source, move_target);
-        new_game.occupancies[Constants::BOTH_OCCUPANCIES].move_bit(move_source, move_target);
+        self.occupancies[self.side as usize].move_bit(move_source, move_target);
+        self.occupancies[Constants::BOTH_OCCUPANCIES].move_bit(move_source, move_target);
 
         // update if capture
         let move_capture = move_made.capture();
         if let Some(piece_captured) = move_capture {
-            new_game.piece_positions[!self.side as usize][piece_captured as usize].pop_bit(move_target);
-            new_game.occupancies[!self.side as usize].pop_bit(move_target);
+            self.piece_positions[!self.side as usize][piece_captured as usize].pop_bit(move_target);
+            self.occupancies[!self.side as usize].pop_bit(move_target);
 
             if piece_captured == Pieces::ROOK {
                 if let Some(used_rights) = match move_target {
@@ -243,16 +269,16 @@ impl Game {
                     63 => Some(CastleRights::WhiteKing),
                     _ => None,
                 } {
-                    let new_castle_rights = new_game.castle_rights & !used_rights.as_int();
-                    new_game.castle_rights = new_castle_rights;
+                    let new_castle_rights = self.castle_rights & !used_rights.as_int();
+                    self.castle_rights = new_castle_rights;
                 }
             }
         }
 
         // promotion
         if let Some(promoted_piece) = move_made.promoted_piece() {
-            new_game.piece_positions[self.side as usize][Pieces::PAWN as usize].pop_bit(move_target);
-            new_game.piece_positions[self.side as usize][promoted_piece as usize].set_bit(move_target);
+            self.piece_positions[self.side as usize][Pieces::PAWN as usize].pop_bit(move_target);
+            self.piece_positions[self.side as usize][promoted_piece as usize].set_bit(move_target);
         }
 
         // update en passant target
@@ -264,34 +290,33 @@ impl Game {
             else {
                 target_position -= 8;
             }
-            new_game.en_passant = Some(target_position);
+            self.en_passant = Some(target_position);
         }
         else {
-            new_game.en_passant = None;
+            self.en_passant = None;
         }
 
         if move_made.en_passant() {
-            let mut captured_square = move_target;
+            let mut enemy_pawn_square = move_target;
             if self.side == Color::WHITE {
-                captured_square += 8;
+                enemy_pawn_square += 8;
             }
             else {
-                captured_square -= 8;
+                enemy_pawn_square -= 8;
             }
-            new_game.piece_positions[!self.side as usize][Pieces::PAWN as usize].pop_bit(captured_square);
-            new_game.occupancies[!self.side as usize].pop_bit(captured_square);
-            new_game.occupancies[Constants::BOTH_OCCUPANCIES].pop_bit(captured_square);
+            self.piece_positions[!self.side as usize][Pieces::PAWN as usize].pop_bit(enemy_pawn_square);
+            self.occupancies[!self.side as usize].pop_bit(enemy_pawn_square);
+            self.occupancies[Constants::BOTH_OCCUPANCIES].pop_bit(enemy_pawn_square);
+            capture_square = enemy_pawn_square;
         }
-
-        //todo: update castle rights if king or rook moved
 
         if moved_piece == Pieces::KING {
             let used_rights = match self.side {
                 Color::WHITE => 0b0011,
                 Color::BLACK => 0b1100,
             };
-            let new_castle_rights = new_game.castle_rights & !used_rights;
-            new_game.castle_rights = new_castle_rights;
+            let new_castle_rights = self.castle_rights & !used_rights;
+            self.castle_rights = new_castle_rights;
         }
         else if moved_piece == Pieces::ROOK {
             if let Some(used_rights) = match move_source {
@@ -301,30 +326,40 @@ impl Game {
                 63 => Some(CastleRights::WhiteKing),
                 _ => None,
             } {
-                let new_castle_rights = new_game.castle_rights & !used_rights.as_int();
-                new_game.castle_rights = new_castle_rights;
+                let new_castle_rights = self.castle_rights & !used_rights.as_int();
+                self.castle_rights = new_castle_rights;
             }
         }
         
         if move_made.castle() {
             let (rook_source_square, rook_target_square) = Self::rook_movement(move_target);
-            new_game.piece_positions[self.side as usize][Pieces::ROOK as usize].move_bit(rook_source_square, rook_target_square);
-            new_game.occupancies[self.side as usize].move_bit(rook_source_square, rook_target_square);
-            new_game.occupancies[Constants::BOTH_OCCUPANCIES].move_bit(rook_source_square, rook_target_square);
+            self.piece_positions[self.side as usize][Pieces::ROOK as usize].move_bit(rook_source_square, rook_target_square);
+            self.occupancies[self.side as usize].move_bit(rook_source_square, rook_target_square);
+            self.occupancies[Constants::BOTH_OCCUPANCIES].move_bit(rook_source_square, rook_target_square);
+            rook_movement = (rook_source_square, rook_target_square);
         }
 
         if moved_piece == Pieces::PAWN || move_capture.is_some() {
-            new_game.halfmove_timer = 0;
+            self.halfmove_timer = 0;
         }
         else {
-            new_game.halfmove_timer += 1;
+            self.halfmove_timer += 1;
         }
         if self.side == Color::BLACK {
-            new_game.fullmove_number += 1;
+            self.fullmove_number += 1;
         }
-        new_game.side = !new_game.side;
+        self.side = !self.side;
 
-        new_game
+        // save game to history
+        self.history.push(HistoryEntry {
+            move_made: move_made.clone(),
+            castle_rights: self.castle_rights.clone(),
+            en_passant: self.en_passant.clone(),
+            fullmove_number: self.fullmove_number.clone(),
+            halfmove_timer: self.halfmove_timer.clone(),
+            capture_square,
+            rook_movement,
+        });
     }
 
     fn rook_movement(king_target_square: u8) -> (u8, u8) {
@@ -689,38 +724,41 @@ fn perftree(args: Vec<String>, all_move_data: &AllMoveData) {
             }
         }
         let mut move_options = Vec::new();
-        game.generate_moves(&mut move_options, &all_move_data);
+        game.generate_moves(&mut move_options, all_move_data);
         for move_option in move_options {
             if move_option.source_square() == from_index && move_option.target_square() == to_index && move_option.promoted_piece() == promotion_piece {
-                game = game.make_move(&move_option);
+                game.make_move(&move_option);
                 break;
             }
         }
     }
 
     let mut move_options = Vec::new();
-    game.generate_moves(&mut move_options, &all_move_data);
+    game.generate_moves(&mut move_options, all_move_data);
     let mut total_nodes = 0;
 
     let mut log_file = OpenOptions::new().create(true).append(true).open("perftree_output.log").expect("failed to open log file");
     let mut output = String::new();
+
     for game_move in move_options {
         let mut move_nodes = 0;
         if depth > 0 {
-            move_nodes = count_nodes(depth - 1, &game_move, &game, &all_move_data);
+            game.make_move(&game_move);
+            move_nodes = count_nodes(depth - 1, &mut game, all_move_data);
+            game.unmake_move();
         }
         total_nodes += move_nodes;
         output.push_str(&format!("{} {}\n", game_move, move_nodes));
     }
 
-    output.push_str("\n");
+    output.push('\n');
     output.push_str(&format!("{}\n", total_nodes));
     output = output.trim().to_string();
     write!(io::stdout(), "{}", output).expect("failed to write to stdout");
     write!(log_file, "{}", output).expect("failed to write to log");
 }
 
-const STARTING_FEN: &'static str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+const STARTING_FEN: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
     //source_square: u8,
     //target_square: u8,
@@ -754,7 +792,7 @@ fn main() {
         en_passant: false,
         castle: false,
     }.encode();
-    test_game = test_game.make_move(&test_move);
+    test_game.make_move(&test_move);
     println!("\n\n\n{}", test_game);
     let test_move = Move {
         source_square: 8,
@@ -766,20 +804,23 @@ fn main() {
         en_passant: false,
         castle: false,
     }.encode();
-    test_game = test_game.make_move(&test_move);
+    test_game.make_move(&test_move);
+    println!("\n\n\n{}", test_game);
+    test_game.unmake_move();
     println!("\n\n\n{}", test_game);
 }
 
-fn count_nodes(depth: u32, game_move: &EncodedMove, game: &Game, move_data: &AllMoveData) -> u32 {
-    let game = game.make_move(game_move);
-
+fn count_nodes(depth: u32, game: &mut Game, move_data: &AllMoveData) -> u32 {
     if depth == 0 { return 1; }
+
     let mut move_list : Vec<EncodedMove> = Vec::new();
     let game_state = game.generate_moves(&mut move_list, move_data);
     if matches!(game_state, GameState::Draw | GameState::Checkmate) { return 0; }
     let mut node_count = 0;
     for new_move in move_list.iter() {
-        node_count += count_nodes(depth - 1, new_move, &game, move_data);
+        game.make_move(new_move);
+        node_count += count_nodes(depth - 1, game, move_data);
+        game.unmake_move();
     }
     node_count
 }
