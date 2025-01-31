@@ -2,12 +2,13 @@ use crate::common::AllMoveData;
 use crate::move_generation::{Game, EncodedMove};
 
 use std::cmp::Ordering;
+use std::ops::Neg;
 
 #[derive(Eq)]
 pub enum Score {
     Checkmate((bool, u32)),
     Draw,
-    Playing(u32),
+    Playing(i32),
 }
 
 impl PartialEq for Score {
@@ -54,6 +55,17 @@ impl PartialOrd for Score {
     }
 }
 
+impl Neg for Score {
+    type Output = Self;
+    fn neg(self) -> Self::Output {
+        match self {
+            Score::Checkmate((b, n)) => Score::Checkmate((!b, n)),
+            Score::Playing(n) => Score::Playing(-n),
+            Score::Draw => Score::Draw,
+        }
+    }
+}
+
 pub struct Engine {
     name: &'static str,
     author: &'static str,
@@ -84,4 +96,53 @@ impl Engine {
     }
 
     pub fn get_id_info(&self) -> (&'static str, &'static str) { (self.name, self.author) }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_score() {
+        let self_checkmate_far = Score::Checkmate((true, 5));
+        let self_checkmate_close = Score::Checkmate((true, 2));
+        let self_checkmate = Score::Checkmate((true, 0));
+
+        let other_checkmate_far = Score::Checkmate((false, 5));
+        let other_checkmate_close = Score::Checkmate((false, 2));
+        let other_checkmate = Score::Checkmate((false, 0));
+
+        let positive_playing = Score::Playing(100);
+        let negative_playing = Score::Playing(-100);
+
+        let draw = Score::Draw;
+
+        assert!(other_checkmate_close < other_checkmate_far);
+        assert!(self_checkmate_close > self_checkmate_far);
+
+        assert!(self_checkmate_far < self_checkmate_close);
+        assert!(self_checkmate_close > self_checkmate_far);
+
+        assert!(self_checkmate_far > other_checkmate_far);
+        assert!(other_checkmate_far < self_checkmate_far);
+
+        assert!(self_checkmate > other_checkmate);
+        assert!(other_checkmate < self_checkmate);
+
+        assert!(positive_playing > negative_playing);
+        assert!(negative_playing < positive_playing);
+
+        assert!(self_checkmate_far > positive_playing);
+        assert!(self_checkmate_far > negative_playing);
+        assert!(self_checkmate_far > draw);
+
+        assert!(other_checkmate_far < positive_playing);
+        assert!(other_checkmate_far < negative_playing);
+        assert!(other_checkmate_far < draw);
+
+        assert!(draw == Score::Playing(0));
+        assert!(Score::Playing(0) == draw);
+
+        assert!(self_checkmate_far == self_checkmate_far);
+    }
 }
