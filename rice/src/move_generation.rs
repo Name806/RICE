@@ -1,4 +1,4 @@
-use crate::common::{Pieces, Color, BitBoard, Constants, CastleRights, AllMoveData};
+use crate::common::{Pieces, Color, BitBoard, Constants, CastleRights, AllMoveData, ZobristHashes};
 use std::fmt;
     
 const BOTH_OCCUPANCIES: usize = 2;
@@ -78,10 +78,10 @@ impl fmt::Display for EncodedMove {
         let mut movement_string = format!("{}{}{}{}", (b'a' + start_file) as char, (b'1' + start_rank) as char, (b'a' + end_file) as char, (b'1' + end_rank) as char);
         if let Some(promotion_piece) = self.promoted_piece() {
             match promotion_piece {
-                Pieces::QUEEN => movement_string.push_str("q"),
-                Pieces::KNIGHT => movement_string.push_str("n"),
-                Pieces::ROOK => movement_string.push_str("r"),
-                Pieces::BISHOP => movement_string.push_str("b"),
+                Pieces::QUEEN => movement_string.push('q'),
+                Pieces::KNIGHT => movement_string.push('n'),
+                Pieces::ROOK => movement_string.push('r'),
+                Pieces::BISHOP => movement_string.push('b'),
                 _ => panic!("promotion piece wrong"),
             }
         }
@@ -95,7 +95,7 @@ impl fmt::Display for Game {
         result.push_str(&format!("white occupancy: {} \nblack occupancy: {} \nboth_occupancy: {}", self.occupancies[Color::WHITE as usize], self.occupancies[Color::BLACK as usize], self.occupancies[Constants::BOTH_OCCUPANCIES]));
         'square: for square in 0..64 {
             if square % 8 == 0 {
-                result.push_str("\n");
+                result.push('\n');
             }
             for side in 0..2 {
                 for piece in 0..6 {
@@ -141,17 +141,21 @@ struct HistoryEntry {
     fullmove_number: u16,
     capture_square: u8,
     rook_movement: (u8, u8),
+    hash: u64,
 }
 
 pub struct Game {
-    piece_positions: Vec<Vec<BitBoard>>,
-    occupancies: Vec<BitBoard>,
-    side: Color,
+    pub piece_positions: Vec<Vec<BitBoard>>,
+    pub occupancies: Vec<BitBoard>,
+    pub side: Color,
     en_passant: Option<u8>,
     castle_rights: u8,
     halfmove_timer: u8,
     fullmove_number: u16,
     history: Vec<HistoryEntry>,
+    move_data: AllMoveData,
+    hashes: ZobristHashes,
+    hash: u64,
 }
 
 pub enum GameState {
@@ -161,7 +165,7 @@ pub enum GameState {
 }
 
 impl Game {
-    pub fn new() -> Self {
+    pub fn new(move_data: &AllMoveData, hashes: &ZobristHashes) -> Self {
         Self {
             piece_positions: vec![vec![BitBoard::new(); 6]; 2],
             occupancies: vec![BitBoard::new(); 3],
@@ -171,6 +175,9 @@ impl Game {
             halfmove_timer: 0,
             fullmove_number: 0,
             history: Vec::new(),
+            move_data: move_data.clone(),
+            hashes: hashes.clone(),
+            hash: 0,
         }
     }
 
@@ -212,9 +219,11 @@ impl Game {
         self.en_passant = history.en_passant;
         self.fullmove_number = history.fullmove_number;
         self.halfmove_timer = history.halfmove_timer;
+        self.hash = history.hash;
     }
 
     pub fn make_move(&mut self, move_made: &EncodedMove) {
+        self.hash ^= self.hashes.castle_rights[self.castle_rights as usize];
         let moved_piece = move_made.piece_moved();
         let move_source = move_made.source_square();
         let move_target = move_made.target_square();
@@ -225,6 +234,8 @@ impl Game {
 
         // update piece position
         self.piece_positions[self.side as usize][moved_piece as usize].move_bit(move_source, move_target);
+        self.toggle_piece_hash(self.side, moved_piece, move_source);
+        self.toggle_piece_hash(self.side, moved_piece, move_target);
 
         // update occupancy for moved piece
         self.occupancies[self.side as usize].move_bit(move_source, move_target);
@@ -235,6 +246,7 @@ impl Game {
         if let Some(piece_captured) = move_capture {
             self.piece_positions[!self.side as usize][piece_captured as usize].pop_bit(move_target);
             self.occupancies[!self.side as usize].pop_bit(move_target);
+            self.toggle_piece_hash(!self.side, piece_captured, move_target);
 
             if piece_captured == Pieces::ROOK {
                 if let Some(used_rights) = match move_target {
@@ -253,7 +265,14 @@ impl Game {
         // promotion
         if let Some(promoted_piece) = move_made.promoted_piece() {
             self.piece_positions[self.side as usize][Pieces::PAWN as usize].pop_bit(move_target);
+            self.toggle_piece_hash(self.side, Pieces::PAWN, move_target);
             self.piece_positions[self.side as usize][promoted_piece as usize].set_bit(move_target);
+            self.toggle_piece_hash(self.side, promoted_piece, move_target);
+        }
+
+        // clear old en passant hash
+        if let Some(en_passant_square) = self.en_passant {
+            self.hash ^= self.hashes.en_passant_file[(en_passant_square % 8) as usize];
         }
 
         // update en passant target
@@ -266,6 +285,7 @@ impl Game {
                 target_position -= 8;
             }
             self.en_passant = Some(target_position);
+            self.hash ^= self.hashes.en_passant_file[(target_position % 8) as usize];
         }
         else {
             self.en_passant = None;
@@ -282,6 +302,7 @@ impl Game {
             self.piece_positions[!self.side as usize][Pieces::PAWN as usize].pop_bit(enemy_pawn_square);
             self.occupancies[!self.side as usize].pop_bit(enemy_pawn_square);
             self.occupancies[Constants::BOTH_OCCUPANCIES].pop_bit(enemy_pawn_square);
+            self.toggle_piece_hash(!self.side, Pieces::PAWN, enemy_pawn_square);
             capture_square = enemy_pawn_square;
         }
 
@@ -312,6 +333,8 @@ impl Game {
             self.occupancies[self.side as usize].move_bit(rook_source_square, rook_target_square);
             self.occupancies[Constants::BOTH_OCCUPANCIES].move_bit(rook_source_square, rook_target_square);
             rook_movement = (rook_source_square, rook_target_square);
+            self.toggle_piece_hash(self.side, Pieces::ROOK, rook_source_square);
+            self.toggle_piece_hash(self.side, Pieces::ROOK, rook_target_square);
         }
 
         if moved_piece == Pieces::PAWN || move_capture.is_some() {
@@ -324,6 +347,9 @@ impl Game {
             self.fullmove_number += 1;
         }
         self.side = !self.side;
+        self.hash ^= self.hashes.side;
+
+        self.hash ^= self.hashes.castle_rights[self.castle_rights as usize];
 
         // save game to history
         self.history.push(HistoryEntry {
@@ -334,6 +360,7 @@ impl Game {
             halfmove_timer: self.halfmove_timer.clone(),
             capture_square,
             rook_movement,
+            hash: self.hash,
         });
     }
 
@@ -347,8 +374,12 @@ impl Game {
         }
     }
 
-    pub fn new_fen(fen: String) -> Self {
-        let mut game = Game::new();
+    fn toggle_piece_hash(&mut self, color: Color, piece: Pieces, square: u8) {
+        self.hash ^= self.hashes.pieces[color as usize * 6 + piece as usize][square as usize];
+    }
+
+    pub fn new_fen(fen: String, move_data: &AllMoveData, hashes: &ZobristHashes) -> Self {
+        let mut game = Game::new(move_data, hashes);
         let parts: Vec<&str> = fen.split_whitespace().collect();
         if let [piece_positions, ply, castle_rights, en_passant_target, halfmove_timer, fullmove_number] = parts.as_slice() {
             let rows = piece_positions.split("/");
@@ -376,6 +407,7 @@ impl Game {
                         game.piece_positions[color as usize][p as usize].set_bit(index);
                         game.occupancies[color as usize].set_bit(index);
                         game.occupancies[BOTH_OCCUPANCIES].set_bit(index);
+                        game.toggle_piece_hash(color, p, index);
                         index += 1;
                     }
                 }
@@ -383,7 +415,10 @@ impl Game {
             
             let side = match *ply {
                 "w" => Color::WHITE,
-                "b" => Color::BLACK,
+                "b" => {
+                    game.hash ^= hashes.side;
+                    Color::BLACK
+                },
                 &_ => panic!("ply does not match"),
             };
             
@@ -402,11 +437,14 @@ impl Game {
                 
                 game.castle_rights |= cr;
             }
+
+            game.hash ^= hashes.castle_rights[game.castle_rights as usize];
             
             if *en_passant_target != "-" {
                 let file = en_passant_target.chars().nth(0).unwrap() as u8 - b'a';
                 let rank = 7 - (en_passant_target.chars().nth(1).unwrap() as u8 - b'1');
                 let index = (rank * 8) + file;
+                game.hash ^= hashes.en_passant_file[file as usize];
                 game.en_passant = Some(index);
             }
             
@@ -419,7 +457,7 @@ impl Game {
         game
     }
 
-    pub fn parse_moves(&mut self, moves: Vec<String>,  move_data: &AllMoveData) {
+    pub fn parse_moves(&mut self, moves: Vec<String>) {
         for m in moves {
             let mut chars = m.trim().chars();
             let file = chars.next().unwrap() as u8 - b'a';
@@ -442,7 +480,7 @@ impl Game {
                 }
             }
             let mut move_options = Vec::new();
-            self.generate_moves(&mut move_options, move_data);
+            self.generate_moves(&mut move_options);
             for move_option in move_options {
                 if move_option.source_square() == from_index && move_option.target_square() == to_index && move_option.promoted_piece() == promotion_piece {
                     self.make_move(&move_option);
@@ -452,7 +490,7 @@ impl Game {
         }
     }
 
-    fn get_attacked_squares(&self, side: Color, move_data: &AllMoveData, occupancy: &BitBoard) -> BitBoard {
+    fn get_attacked_squares(&self, side: Color, occupancy: &BitBoard) -> BitBoard {
         let mut attacked = BitBoard::new();
 
         for piece in 0..6 {
@@ -460,7 +498,7 @@ impl Game {
             while piece_positions.not_zero() {
                 let index = piece_positions.pop_ls1b().unwrap();
                 let piece = Pieces::int_to_piece(piece);
-                let attacks = move_data.get_attacks(index, &piece, side, &occupancy);
+                let attacks = self.move_data.get_attacks(index, &piece, side, &occupancy);
                 attacked |= attacks;
             }
         }
@@ -468,7 +506,7 @@ impl Game {
         attacked
     }
 
-    pub fn generate_moves(&self, moves: &mut Vec<EncodedMove>, move_data: &AllMoveData) -> GameState {
+    pub fn generate_moves(&self, moves: &mut Vec<EncodedMove>) -> GameState {
         if self.halfmove_timer > 100 {
             return GameState::Draw;
         }
@@ -477,22 +515,22 @@ impl Game {
         let king_position = self.piece_positions[side_to_move][Pieces::KING as usize];
 
         let king_square = king_position.ls1b_index().expect("King not found!");
-        let mut king_attacks = move_data.get_attacks(king_square, &Pieces::KING, self.side, &both_occupancy);
+        let mut king_attacks = self.move_data.get_attacks(king_square, &Pieces::KING, self.side, &both_occupancy);
         king_attacks &= !self.occupancies[side_to_move];
         let without_king_occupancy = both_occupancy & !king_position;
-        let king_danger_squares = self.get_attacked_squares(!self.side, move_data, &without_king_occupancy);
+        let king_danger_squares = self.get_attacked_squares(!self.side, &without_king_occupancy);
         king_attacks &= !king_danger_squares;
         
         let mut checking_pieces = BitBoard::new();
         for piece in 0..6 {
             if piece == Pieces::KING as u8 { continue; }
-            let attacks_from_king = move_data.get_attacks(king_square, &Pieces::int_to_piece(piece), self.side, &both_occupancy);
+            let attacks_from_king = self.move_data.get_attacks(king_square, &Pieces::int_to_piece(piece), self.side, &both_occupancy);
             checking_pieces |= self.piece_positions[!self.side as usize][piece as usize] & attacks_from_king;
         }
         
         let num_checking = checking_pieces.count_bits();
 
-        self.add_moves(moves, king_square, &king_attacks, Pieces::KING, false, &move_data);
+        self.add_moves(moves, king_square, &king_attacks, Pieces::KING, false);
         if num_checking > 1 {
             if moves.len() == 0 {
                 return GameState::Checkmate;
@@ -505,35 +543,35 @@ impl Game {
         if num_checking == 1 {
             capture_mask = checking_pieces;
             let checker_square = checking_pieces.ls1b_index().expect("checking_pieces should not be empty");
-            block_mask = move_data.squares_between(king_square, checker_square);
+            block_mask = self.move_data.squares_between(king_square, checker_square);
         }
         else {
             for i in 0..4 {
                 let flag = 1 << i;
                 let castle_rights = CastleRights::int_to_castle_rights(flag);
                 if self.castle_rights & flag == 0 { continue; }
-                if let Some((target_square, move_squares)) = move_data.get_castle_info(castle_rights, self.side) {
+                if let Some((target_square, move_squares)) = self.move_data.get_castle_info(castle_rights, self.side) {
                     if (move_squares & king_danger_squares).not_zero() { continue; }
                     let (source_square, _) = Self::rook_movement(target_square);
-                    if (move_data.squares_between(source_square, king_square) & self.occupancies[Constants::BOTH_OCCUPANCIES]).not_zero() { continue; }
+                    if (self.move_data.squares_between(source_square, king_square) & self.occupancies[Constants::BOTH_OCCUPANCIES]).not_zero() { continue; }
                     castle_attacks |= BitBoard::new_set(target_square);
                 }
             }
         }
 
-        self.add_moves(moves, king_square, &castle_attacks, Pieces::KING, true, &move_data);
+        self.add_moves(moves, king_square, &castle_attacks, Pieces::KING, true);
 
-        let queen_attacks_from_king = move_data.get_attacks(king_square, &Pieces::QUEEN, self.side, &both_occupancy);
+        let queen_attacks_from_king = self.move_data.get_attacks(king_square, &Pieces::QUEEN, self.side, &both_occupancy);
 
         let mut pieces_to_ignore = BitBoard::new();
         const SLIDING_PIECES: [Pieces; 3] = [Pieces::BISHOP, Pieces::ROOK, Pieces::QUEEN];
         for sliding_piece in SLIDING_PIECES {
             let mut opponent_positions = self.piece_positions[!self.side as usize][sliding_piece as usize];
             while let Some(opponent_square) = opponent_positions.pop_ls1b() {
-                let opponent_attacks = move_data.get_attacks(opponent_square, &sliding_piece, !self.side, &both_occupancy);
-                if !(move_data.squares_between(opponent_square, king_square)).not_zero() { continue; }
+                let opponent_attacks = self.move_data.get_attacks(opponent_square, &sliding_piece, !self.side, &both_occupancy);
+                if !(self.move_data.squares_between(opponent_square, king_square)).not_zero() { continue; }
                 let pinned_pieces = opponent_attacks & queen_attacks_from_king;
-                self.calculate_pinned_moves(moves, &mut pieces_to_ignore, opponent_square, &pinned_pieces, king_square, &both_occupancy, &capture_mask, &block_mask, move_data);
+                self.calculate_pinned_moves(moves, &mut pieces_to_ignore, opponent_square, &pinned_pieces, king_square, &both_occupancy, &capture_mask, &block_mask);
             }
         }
 
@@ -542,8 +580,8 @@ impl Game {
             if piece_type == Pieces::KING { continue; }
             let mut piece_position = self.piece_positions[self.side as usize][piece as usize] & !pieces_to_ignore;
             while let Some(piece_square) = piece_position.pop_ls1b() {
-                let piece_attacks = self.get_legal_attacks(piece_square, piece_type, &both_occupancy, &block_mask, &capture_mask, king_square, move_data);
-                self.add_moves(moves, piece_square, &piece_attacks, piece_type, false, move_data);
+                let piece_attacks = self.get_legal_attacks(piece_square, piece_type, &both_occupancy, &block_mask, &capture_mask, king_square);
+                self.add_moves(moves, piece_square, &piece_attacks, piece_type, false);
             }
         }
         if moves.len() == 0 {
@@ -557,8 +595,8 @@ impl Game {
         return GameState::Normal;
     }
 
-    fn calculate_pinned_moves(&self, moves: &mut Vec<EncodedMove>, pieces_to_ignore: &mut BitBoard, opponent_square: u8, pinned_pieces: &BitBoard, king_square: u8, both_occupancy: &BitBoard, block_mask: &BitBoard, capture_mask: &BitBoard, move_data: &AllMoveData) {
-        let between_king_and_opponent = move_data.squares_between(opponent_square, king_square);
+    fn calculate_pinned_moves(&self, moves: &mut Vec<EncodedMove>, pieces_to_ignore: &mut BitBoard, opponent_square: u8, pinned_pieces: &BitBoard, king_square: u8, both_occupancy: &BitBoard, block_mask: &BitBoard, capture_mask: &BitBoard) {
+        let between_king_and_opponent = self.move_data.squares_between(opponent_square, king_square);
         if !between_king_and_opponent.not_zero() { return; }
         for piece in 0..6 {
             let piece_type = Pieces::int_to_piece(piece);
@@ -569,25 +607,25 @@ impl Game {
                 pinned_position.set_bit(pinned_square);
                 let opponent_position = BitBoard::new_set(opponent_square);
 
-                let pinned_movement = move_data.squares_between(opponent_square, king_square) | opponent_position;
-                let piece_attacks = self.get_legal_attacks(pinned_square, piece_type, &both_occupancy, block_mask, capture_mask, king_square, &move_data);
+                let pinned_movement = self.move_data.squares_between(opponent_square, king_square) | opponent_position;
+                let piece_attacks = self.get_legal_attacks(pinned_square, piece_type, &both_occupancy, block_mask, capture_mask, king_square);
                 let pinned_attacks = pinned_movement & piece_attacks;
-                self.add_moves(moves, pinned_square, &pinned_attacks, piece_type, false, move_data);
+                self.add_moves(moves, pinned_square, &pinned_attacks, piece_type, false);
                 *pieces_to_ignore |= BitBoard::new_set(pinned_square);
             }
         }
     }
 
-    fn check_en_passant_special_case(&self, king_square: u8, both_occupancy: &BitBoard, piece_attacks: &BitBoard, en_passant_square: u8, move_data: &AllMoveData) -> bool {
+    fn check_en_passant_special_case(&self, king_square: u8, both_occupancy: &BitBoard, piece_attacks: &BitBoard, en_passant_square: u8) -> bool {
         if !(*piece_attacks & BitBoard::new_set(en_passant_square)).not_zero() { return false; }
-        let passant_rank = move_data.get_pawn_double_push_ranks(!self.side);
+        let passant_rank = self.move_data.get_pawn_double_push_ranks(!self.side);
         if !(passant_rank & BitBoard::new_set(king_square)).not_zero() { return false; }
         const STRAIGHT_SLIDING_PIECES: [Pieces; 2] = [Pieces::ROOK, Pieces::QUEEN];
         for piece in STRAIGHT_SLIDING_PIECES {
             let mut enemy_positions = self.piece_positions[!self.side as usize][piece as usize] & passant_rank;
             while let Some(enemy_square) = enemy_positions.pop_ls1b() {
                 if !(BitBoard::new_set(enemy_square) & passant_rank).not_zero() { continue; }
-                if (move_data.squares_between(king_square, enemy_square) & *both_occupancy).count_bits() == 2 {
+                if (self.move_data.squares_between(king_square, enemy_square) & *both_occupancy).count_bits() == 2 {
                     return true;
                 }
             }
@@ -595,8 +633,8 @@ impl Game {
         return false;
     }
 
-    fn get_legal_attacks(&self, square: u8, piece_type: Pieces, both_occupancy: &BitBoard, block_mask: &BitBoard, capture_mask: &BitBoard, king_square: u8, move_data: &AllMoveData) -> BitBoard {
-        let mut piece_attacks = move_data.get_attacks(square, &piece_type, self.side, both_occupancy);
+    fn get_legal_attacks(&self, square: u8, piece_type: Pieces, both_occupancy: &BitBoard, block_mask: &BitBoard, capture_mask: &BitBoard, king_square: u8) -> BitBoard {
+        let mut piece_attacks = self.move_data.get_attacks(square, &piece_type, self.side, both_occupancy);
         if piece_type == Pieces::PAWN {
             let mut pawn_attack_mask = self.occupancies[!self.side as usize] & *capture_mask;
             if let Some(en_passant_square) = self.en_passant {
@@ -607,13 +645,13 @@ impl Game {
                 if (BitBoard::new_set(double_pushed_piece_square) & *capture_mask).not_zero() {
                     pawn_attack_mask.set_bit(en_passant_square);
                 }
-                if self.check_en_passant_special_case(king_square, both_occupancy, &piece_attacks, en_passant_square, move_data) {
+                if self.check_en_passant_special_case(king_square, both_occupancy, &piece_attacks, en_passant_square) {
                     pawn_attack_mask.pop_bit(en_passant_square);
                 }
             }
             let pawn_attacks = piece_attacks & pawn_attack_mask;
-            let mut pawn_movement = move_data.get_pawn_moves(square, self.side);
-            if pawn_movement.count_bits() == 2 && (*both_occupancy & (move_data.get_pawn_single_push_ranks(self.side) & pawn_movement)).not_zero() {
+            let mut pawn_movement = self.move_data.get_pawn_moves(square, self.side);
+            if pawn_movement.count_bits() == 2 && (*both_occupancy & (self.move_data.get_pawn_single_push_ranks(self.side) & pawn_movement)).not_zero() {
                 pawn_movement = BitBoard::new();
             }
             pawn_movement &= *block_mask;
@@ -636,7 +674,7 @@ impl Game {
     }
 
     
-    fn add_moves(&self, all_moves: &mut Vec<EncodedMove>, source_square: u8, target_squares: &BitBoard, piece_moved: Pieces, castle: bool, move_data: &AllMoveData) {
+    fn add_moves(&self, all_moves: &mut Vec<EncodedMove>, source_square: u8, target_squares: &BitBoard, piece_moved: Pieces, castle: bool) {
         let mut target_squares = target_squares.clone();
         'target_square: while let Some(target_square) = target_squares.pop_ls1b() {
             let mut target_position = BitBoard::new();
@@ -652,7 +690,7 @@ impl Game {
             let mut en_passant = false;
             let mut double_push = false;
             if piece_moved == Pieces::PAWN {
-                if (target_position & move_data.get_promotion_ranks(self.side)).not_zero() {
+                if (target_position & self.move_data.get_promotion_ranks(self.side)).not_zero() {
                     let mut moves: Vec<EncodedMove> = Vec::new();
                     const PROMOTION_OPTIONS: [Pieces; 4] = [Pieces::QUEEN, Pieces::BISHOP, Pieces::ROOK, Pieces::KNIGHT];
                     for promoted_piece in PROMOTION_OPTIONS {
@@ -676,7 +714,7 @@ impl Game {
                         en_passant = true;
                     }
                 }
-                if (target_position & move_data.get_pawn_double_push_ranks(self.side)).not_zero() && ((8..16).contains(&source_square) || (48..56).contains(&source_square)) {
+                if (target_position & self.move_data.get_pawn_double_push_ranks(self.side)).not_zero() && ((8..16).contains(&source_square) || (48..56).contains(&source_square)) {
                         double_push = true;
                 }
             }
@@ -697,4 +735,3 @@ impl Game {
         }
     }
 }
-

@@ -207,7 +207,9 @@ impl Constants {
     pub const _BISHOP: u8 = 0;
     pub const _ROOK: u8 = 1;
     pub const BOTH_OCCUPANCIES: usize = 2;
-    pub const FILE_NAME: &'static str = "move_data.json";
+    pub const MOVE_DATA_FILE_NAME: &'static str = "move_data.json";
+    pub const HASHES_FILE_NAME: &'static str = "hashes.json";
+
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -370,6 +372,39 @@ impl AllMoveData {
             pawn_single_push_ranks,
             pawn_double_push_ranks,
             directions,
+        }
+    }
+}
+
+pub struct EvalData {
+    pub material_values: Vec<i32>,
+    pub mobility_values: Vec<i32>,
+}
+
+impl EvalData {
+    pub fn new() -> Self {
+        EvalData {
+            material_values: vec![0, 100, 300, 325, 500, 900],
+            mobility_values: vec![0, 1, 1, 1, 1, 0],
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct ZobristHashes {
+    pub pieces: Vec<Vec<u64>>,
+    pub side: u64,
+    pub castle_rights: Vec<u64>,
+    pub en_passant_file: Vec<u64>,
+}
+
+impl ZobristHashes {
+    pub fn new() -> Self {
+        ZobristHashes {
+            pieces: vec![vec![0; 64]; 12],
+            side: 0,
+            en_passant_file: vec![0; 8],
+            castle_rights: vec![0; 16],
         }
     }
 }

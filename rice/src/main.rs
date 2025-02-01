@@ -1,9 +1,10 @@
 mod engine;
 mod common;
 mod move_generation;
+mod score;
 
 use move_generation::{Game, EncodedMove, GameState};
-use common::{Constants, AllMoveData, Pieces};
+use common::{Constants, AllMoveData, Pieces, ZobristHashes};
 use engine::Engine;
 
 use std::fs::File;
@@ -27,17 +28,17 @@ impl Pieces {
     }
 }
 
-fn perftree(args: Vec<String>, all_move_data: &AllMoveData) {
+fn perftree(args: Vec<String>, all_move_data: &AllMoveData, hashes: &ZobristHashes) {
     let depth: u32 = args[2].parse().expect("depth should be a number");
     let fen = &args[3];
 
 
-    let mut game = Game::new_fen(fen.clone());
+    let mut game = Game::new_fen(fen.clone(), all_move_data, hashes);
     
-    game.parse_moves(args, all_move_data);
+    game.parse_moves(args);
 
     let mut move_options = Vec::new();
-    game.generate_moves(&mut move_options, all_move_data);
+    game.generate_moves(&mut move_options);
     let mut total_nodes = 0;
 
     let mut log_file = OpenOptions::new().create(true).append(true).open("perftree_output.log").expect("failed to open log file");
@@ -47,7 +48,7 @@ fn perftree(args: Vec<String>, all_move_data: &AllMoveData) {
         let mut move_nodes = 0;
         if depth > 0 {
             game.make_move(&game_move);
-            move_nodes = count_nodes(depth - 1, &mut game, all_move_data);
+            move_nodes = count_nodes(depth - 1, &mut game);
             game.unmake_move();
         }
         total_nodes += move_nodes;
@@ -63,12 +64,12 @@ fn perftree(args: Vec<String>, all_move_data: &AllMoveData) {
 
 const STARTING_FEN: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
-fn handle_uci(move_data: &AllMoveData) {
+fn handle_uci(move_data: &AllMoveData, hashes: &ZobristHashes) {
     let stdin = io::stdin();
     let mut stdout = io::stdout();
 
     let mut buffer = String::new();
-    let mut engine = Engine::new(move_data);
+    let mut engine = Engine::new(move_data, hashes);
     loop {
         buffer.clear();
         if stdin.read_line(&mut buffer).is_err() { continue; }
@@ -85,17 +86,17 @@ fn handle_uci(move_data: &AllMoveData) {
             "isready" => println!("readyok"),
             cmd if cmd.starts_with("position") => {
                 let parts: Vec<&str> = cmd.split_whitespace().collect();
-                let mut game = Game::new();
+                let mut game = Game::new(move_data, hashes);
                 if parts[1] == "startpos" {
-                    game = Game::new_fen(String::from(STARTING_FEN));
+                    game = Game::new_fen(String::from(STARTING_FEN), move_data, hashes);
                 } 
                 else if parts[1] == "fen" {
-                    game = Game::new_fen(parts[2..].join(" "));
+                    game = Game::new_fen(parts[2..].join(" "), move_data, hashes);
                 }
 
                 if let Some(moves_index) = parts.iter().position(|&x| x == "moves") {
                     let moves: Vec<String> = parts[moves_index + 1..].iter().map(|s| s.to_string()).collect();
-                    game.parse_moves(moves, move_data);
+                    game.parse_moves(moves);
                 }
                 engine.set_game(game);
             }
@@ -112,30 +113,35 @@ fn handle_uci(move_data: &AllMoveData) {
 }
 
 fn main() {
-    let mut file = File::open(Constants::FILE_NAME).unwrap();
+    let mut file = File::open(Constants::MOVE_DATA_FILE_NAME).unwrap();
     let mut contents = String::new();
     file.read_to_string(&mut contents).unwrap();
     let all_move_data: AllMoveData = serde_json::from_str(&contents).unwrap();
 
+    let mut file = File::open(Constants::HASHES_FILE_NAME).unwrap();
+    let mut contents = String::new();
+    file.read_to_string(&mut contents).unwrap();
+    let hashes: ZobristHashes = serde_json::from_str(&contents).unwrap();
+
     let args: Vec<String> = env::args().collect();
     if args.len() > 1 && args[1] == "perftree" {
-        perftree(args, &all_move_data);
+        perftree(args, &all_move_data, &hashes);
         return;
     }
 
-    handle_uci(&all_move_data);
+    handle_uci(&all_move_data, &hashes);
 }
 
-fn count_nodes(depth: u32, game: &mut Game, move_data: &AllMoveData) -> u32 {
+fn count_nodes(depth: u32, game: &mut Game) -> u32 {
     if depth == 0 { return 1; }
 
     let mut move_list : Vec<EncodedMove> = Vec::new();
-    let game_state = game.generate_moves(&mut move_list, move_data);
+    let game_state = game.generate_moves(&mut move_list);
     if matches!(game_state, GameState::Draw | GameState::Checkmate) { return 0; }
     let mut node_count = 0;
     for new_move in move_list.iter() {
         game.make_move(new_move);
-        node_count += count_nodes(depth - 1, game, move_data);
+        node_count += count_nodes(depth - 1, game);
         game.unmake_move();
     }
     node_count
