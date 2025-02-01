@@ -6,6 +6,9 @@ use common::LeapingAttackData;
 use common::AllMoveData;
 use std::{fs::File, io::Write};
 use common::Color;
+use common::ZobristHashes;
+
+use rand::Rng;
 
 struct NotFiles {
     a: BitBoard,
@@ -75,14 +78,14 @@ fn main() {
 
     println!("\nCalculating Rook Magic Numbers (0/64)");
     for square in 0..64 {
-        let magic_number = find_magic_number(square, rook_relevant_bits[square as usize], Constants::ROOK, &mut random_state);
+        let magic_number = find_magic_number(square, rook_relevant_bits[square as usize], Constants::_ROOK, &mut random_state);
         rook_magic_numbers[square as usize] = magic_number;
         println!("Calculating Rook Magic Numbers ({}/64)", square + 1);
     }
 
     println!("\nCalculating Bishop Magic Numbers (0/64)");
     for square in 0..64 {
-        let magic_number = find_magic_number(square, bishop_relevant_bits[square as usize], Constants::BISHOP, &mut random_state);
+        let magic_number = find_magic_number(square, bishop_relevant_bits[square as usize], Constants::_BISHOP, &mut random_state);
         bishop_magic_numbers[square as usize] = magic_number;
         println!("Calculating Bishop Magic Numbers ({}/64)", square + 1);
     }
@@ -90,11 +93,11 @@ fn main() {
     let mut rook_masks = vec![BitBoard::new(); 64];
     let mut bishop_attacks = vec![vec![BitBoard::new(); 512]; 64];
     let mut rook_attacks = vec![vec![BitBoard::new(); 4096]; 64];
-    init_sliders_attacks(Constants::BISHOP, &mut bishop_masks, &mut rook_masks, &mut bishop_attacks, &mut rook_attacks, &bishop_magic_numbers, &bishop_relevant_bits);
-    init_sliders_attacks(Constants::ROOK, &mut bishop_masks, &mut rook_masks, &mut bishop_attacks, &mut rook_attacks, &rook_magic_numbers, &rook_relevant_bits);
+    init_sliders_attacks(Constants::_BISHOP, &mut bishop_masks, &mut rook_masks, &mut bishop_attacks, &mut rook_attacks, &bishop_magic_numbers, &bishop_relevant_bits);
+    init_sliders_attacks(Constants::_ROOK, &mut bishop_masks, &mut rook_masks, &mut bishop_attacks, &mut rook_attacks, &rook_magic_numbers, &rook_relevant_bits);
 
-    let bishop_attack_data = SlidingAttackData::new(bishop_attacks, bishop_magic_numbers, bishop_masks, bishop_relevant_bits);
-    let rook_attack_data = SlidingAttackData::new(rook_attacks, rook_magic_numbers, rook_masks, rook_relevant_bits);
+    let bishop_attack_data = SlidingAttackData::_new(bishop_attacks, bishop_magic_numbers, bishop_masks, bishop_relevant_bits);
+    let rook_attack_data = SlidingAttackData::_new(rook_attacks, rook_magic_numbers, rook_masks, rook_relevant_bits);
     let leaping_attack_data = LeapingAttackData {
         pawn_attacks,
         pawn_moves,
@@ -115,20 +118,47 @@ fn main() {
 
     let mut directions = vec![vec![BitBoard::new(); 64]; 8];
     for i in 0..8 {
-        let (file_dir, rank_dir) = common::index_to_direction(i);
+        let (file_dir, rank_dir) = common::_index_to_direction(i);
         for square in 0..64 {
             directions[i][square as usize] = squares_in_direction(square, file_dir, rank_dir);
         }
     }
 
-    let all_move_data = AllMoveData::new(bishop_attack_data, rook_attack_data, leaping_attack_data, promotion_ranks, pawn_single_push_ranks, pawn_double_push_ranks, directions);
+    let all_move_data = AllMoveData::_new(bishop_attack_data, rook_attack_data, leaping_attack_data, promotion_ranks, pawn_single_push_ranks, pawn_double_push_ranks, directions);
+    let hashes = generate_hashes();
 
     //save data for the ai to use later
     println!("Saving Results");
     let json_data = serde_json::to_string(&all_move_data).unwrap();
-    let mut file = File::create(Constants::FILE_NAME).unwrap();
+    let mut file = File::create(Constants::MOVE_DATA_FILE_NAME).unwrap();
     file.write_all(json_data.as_bytes()).unwrap();
-    println!("Results Saved to: {}", Constants::FILE_NAME);
+
+    let json_data = serde_json::to_string(&hashes).unwrap();
+    let mut file = File::create(Constants::HASHES_FILE_NAME).unwrap();
+    file.write_all(json_data.as_bytes()).unwrap();
+    println!("Results Saved to: {}", Constants::HASHES_FILE_NAME);
+}
+
+fn generate_hashes() -> ZobristHashes {
+    let mut rng = rand::thread_rng();
+    let mut hashes = ZobristHashes::new();
+    for piece_index in 0..hashes.pieces.len() {
+        for square_index in 0..hashes.pieces[0].len() {
+            hashes.pieces[piece_index][square_index] = rng.gen();
+        }
+    }
+
+    hashes.side = rng.gen();
+
+    for i in 0..hashes.en_passant_file.len() {
+        hashes.en_passant_file[i] = rng.gen();
+    }
+
+    for i in 0..hashes.castle_rights.len() {
+        hashes.castle_rights[i] = rng.gen();
+    }
+
+    hashes
 }
 
 fn squares_in_direction(square: u8, file_dir: i8, rank_dir: i8) -> BitBoard {
@@ -168,19 +198,19 @@ fn mask_pawn_moves(side: Color, square: u8, white_pawn_starting_file: BitBoard, 
 
 fn init_sliders_attacks(piece: u8, bishop_masks: &mut Vec<BitBoard>, rook_masks: &mut Vec<BitBoard>, bishop_attacks: &mut Vec<Vec<BitBoard>>, rook_attacks: &mut Vec<Vec<BitBoard>>, magic_numbers: &Vec<BitBoard>, relevant_bits: &Vec<u8>) {
     for square in 0..64 {
-        bishop_masks[square] = mask_sliding_occupancy(square as u8, Constants::BISHOP);
-        rook_masks[square] = mask_sliding_occupancy(square as u8, Constants::ROOK);
+        bishop_masks[square] = mask_sliding_occupancy(square as u8, Constants::_BISHOP);
+        rook_masks[square] = mask_sliding_occupancy(square as u8, Constants::_ROOK);
 
-        let attack_mask = if piece == Constants::BISHOP { bishop_masks[square] } else { rook_masks[square] };
+        let attack_mask = if piece == Constants::_BISHOP { bishop_masks[square] } else { rook_masks[square] };
         let relevant_bits_count = attack_mask.count_bits();
         let occupancy_indicies = 1 << relevant_bits_count;
         for index in 0..occupancy_indicies {
             let occupancy = set_occupancy(index, relevant_bits_count, &attack_mask);
-            if piece == Constants::BISHOP {
+            if piece == Constants::_BISHOP {
                 let magic_index: usize = ((occupancy * magic_numbers[square]) >> (64 - relevant_bits[square])).0 as usize;
                 bishop_attacks[square][magic_index] = mask_sliding_attacks(square as u8, piece, &occupancy);
             }
-            if piece == Constants::ROOK {
+            if piece == Constants::_ROOK {
                 let magic_index: usize = ((occupancy * magic_numbers[square]) >> (64 - relevant_bits[square])).0 as usize;
                 rook_attacks[square][magic_index] = mask_sliding_attacks(square as u8, piece, &occupancy);
             }
@@ -304,10 +334,10 @@ fn mask_sliding_occupancy(index: u8, piece: u8) -> BitBoard {
     let start_rank = index as i8 / 8;
 
     let (file_dir, rank_dir) = 
-    if piece == Constants::BISHOP {
+    if piece == Constants::_BISHOP {
         (1, 1)
     }
-    else if piece == Constants::ROOK {
+    else if piece == Constants::_ROOK {
         (1, 0)
     }
     else {
@@ -343,10 +373,10 @@ fn mask_sliding_attacks(index: u8, piece: u8, blocking: &BitBoard) -> BitBoard {
     let start_rank = index as i8 / 8;
 
     let (file_dir, rank_dir) = 
-    if piece == Constants::BISHOP {
+    if piece == Constants::_BISHOP {
         (1, 1)
     }
-    else if piece == Constants::ROOK {
+    else if piece == Constants::_ROOK {
         (1, 0)
     }
     else {
