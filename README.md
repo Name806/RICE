@@ -24,8 +24,8 @@ Currently, RICE's ai functionality is a work in progress, so the chess moves it 
  * To initailize the ai, either run the file called rice in the folder ```<file_name>/rice/target/release/```. To initailize the debug version, replace "release" with "debug".
  * Alternatively if you have cargo installed, run the command ```cargo run```
  * Running the ai will allow you to send commands by imputting them into the terminal.
-### Uci Commands
-Rice has limited compatability with the UCI (Universal Chess Interface) protocol. This is how you can communicate with it:
+### UCI Commands
+RICE has limited compatability with the UCI (Universal Chess Interface) protocol. This is how you can communicate with it:
  * To get the ai's uci info: ```uci```
  * To check the ai's readiness: ```isready```
  * To set up a custom position, enter the command ```position fen <fen>```; as an example, here is the fen ([Forsyth-Edwards Notation](https://www.chess.com/terms/fen-chess)) for the standard starting position in chess: "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
