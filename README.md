@@ -3,7 +3,7 @@ RICE is the Rust Intelligent Chess Engine. The goal of this project is to create
 
 ## Installation
  * clone the project ``` git clone https://github.com/Name806/RICE <file_name> ```
- * source code can be found in rice/src and precalculator/src. The executable files can be foudn in /rice/target/release and /rice/target/debug.
+ * source code can be found in rice/src and precalculator/src. The executable files can be foudn in rice/target/release and rice/target/debug.
 
 ### Perftree:
 If you want to test the ai using perftree (this is a program that makes sure the moves generated are accurate) follow these steps
