@@ -19,7 +19,7 @@ Currently, RICE's ai functionality is a work in progress, so the chess moves it 
 ### Initailization
  * To initailize the ai, either run the file called rice in the folder ```<file_name>/rice/target/release/```. To initailize the debug version, replace "release" with "debug".
  * Alternatively if you have cargo installed, run the command ```cargo run```
- * Running the ai will allow you to send commands by imputting them into the terminal.
+ * Running the ai will allow you to send commands by inputting them into the terminal.
 ### UCI Commands
 RICE has limited compatability with the UCI (Universal Chess Interface) protocol. This is how you can communicate with it:
  * To get the ai's uci info: ```uci```
