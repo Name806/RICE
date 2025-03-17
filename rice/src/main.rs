@@ -35,7 +35,12 @@ fn perftree(args: Vec<String>, all_move_data: &AllMoveData, hashes: &ZobristHash
 
     let mut game = Game::new_fen(fen.clone(), all_move_data, hashes);
     
-    game.parse_moves(args);
+    if args.len() >= 5 {
+        let moves = args[5..].to_vec();
+        if let Err(e) = game.parse_moves(moves) {
+            eprintln!("Error: {}", e);
+        }
+    }
 
     let mut move_options = Vec::new();
     game.generate_moves(&mut move_options);
@@ -96,7 +101,9 @@ fn handle_uci(move_data: &AllMoveData, hashes: &ZobristHashes) {
 
                 if let Some(moves_index) = parts.iter().position(|&x| x == "moves") {
                     let moves: Vec<String> = parts[moves_index + 1..].iter().map(|s| s.to_string()).collect();
-                    game.parse_moves(moves);
+                    if let Err(e) = game.parse_moves(moves) {
+                        eprintln!("Error: {}", e);
+                    }
                 }
                 engine.set_game(game);
             }

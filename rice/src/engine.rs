@@ -55,7 +55,18 @@ impl Engine {
     }
 }
 
+pub enum Bound {
+    Exact,
+    Lower,
+    Upper,
+
+}
+
 pub struct TranspositionEntry {
+    hash_num: u64,
+    depth: u8,
+    score: Score,
+    bound: Bound,
 }
 
 pub struct TranspositionTable(Vec<TranspositionEntry>);

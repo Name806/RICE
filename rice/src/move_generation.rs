@@ -457,11 +457,20 @@ impl Game {
         game
     }
 
-    pub fn parse_moves(&mut self, moves: Vec<String>) {
-        for m in moves {
+    pub fn parse_moves(&mut self, moves: Vec<String>) -> Result<(), String> {
+        for m in moves.clone() {
+            // this code fixes the crashing in perftree, but it shouldn't be needed.
+            if m.len() < 4 || m.len() > 5 {
+                return Err(format!("move is wrong size: {}", m));
+            }
             let mut chars = m.trim().chars();
-            let file = chars.next().unwrap() as u8 - b'a';
-            let rank = 7 - (chars.next().unwrap() as u8 - b'1');
+            let file_char = chars.next().unwrap() as u8;
+            let rank_char = chars.next().unwrap() as u8;
+            if file_char < b'a'  || rank_char < b'1' || rank_char - b'1' > 7 {
+                continue;
+            }
+            let file = file_char - b'a';
+            let rank = 7 - (rank_char - b'1');
             let from_index = (rank * 8) + file;
             let file = chars.next().unwrap() as u8 - b'a';
             let rank = 7 - (chars.next().unwrap() as u8 - b'1');
@@ -488,6 +497,7 @@ impl Game {
                 }
             }
         }
+        Ok(())
     }
 
     fn get_attacked_squares(&self, side: Color, occupancy: &BitBoard) -> BitBoard {

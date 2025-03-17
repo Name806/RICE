@@ -1,5 +1,5 @@
 #!/bin/fish
-set output (cargo build 2>&1)
+set output (RUSTFLAGS=-Awarnings cargo build 2>&1)
 set build_status $status
 if test $build_status -ne 0
 	echo "build failed with errors."
