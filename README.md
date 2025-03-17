@@ -2,15 +2,16 @@ RICE is the Rust Intelligent Chess Engine. It is a project I am developing by my
 My goal is to translate the code from the Bitboard Chess Engine in C to Rust, because I like Rust better.
 I am also making some adjustments to the code that fit my style of writing code better.
 Eventually, I will add a neural network to the evaluation function and figure out how to train it usiing machine learning.
-For now, I am focusing on making a working chess engine.
+For now, I am focusing on making a working chess engine.process.
+ * you will need fish. Maybe I'll change the scripts to use bash instead in the future, but for now it should be simple to
 
 ## Installation
  * clone the project ``` git clone https://github.com/Name806/RICE <file_name> ```
  * source code can be found in rice/src and precalculator/src. The executable files can be foudn in /rice/target/release and /rice/target/debug.
 
 ### Perftree:
- * you will need fish. Maybe I'll change the scripts to use bash instead in the future, but for now it should be simple to re-create the testing scripts if you are familiar with bash. If you can't do that, you should install fish.
- * If you don't want to test the ai using perftree (this is a program that makes sure the moves generated are accurate) you can skip this section of the installation process.
+If you want to test the ai using perftree (this is a program that makes sure the moves generated are accurate) follow these steps
+ * install the fish shell
  * enter the source file ``` cd <file_name>/rice/src '''
  * edit the file perftree_script.fish and change the line ``` /home/parker/projects/rice/target/debug/rice "perftree" $argv ''' so that the file that gets called is the path so that '''/home/parker/projects ''' instead leads to where the file is on your system. To get that path, use the command ''' pwd ''' while in the directory you cloned the projects to.
  * Install perftree; directions here: [perftree](https://github.com/agausmann/perftree)
