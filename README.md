@@ -21,7 +21,7 @@ If you want to test the ai using perftree (this is a program that makes sure the
 ## Usage
 Currently, RICE's ai functionality is a work in progress, so the chess moves it picks, while guaranteed to be valid moves, are just the first moves in its list of moves that are legal.
 ### Initailization
- * To initailize the ai, either run the file called rice in the folder ```<file_name>/rice/target/release/```. To initailize the debug version, replace <release> with <debug>.
+ * To initailize the ai, either run the file called rice in the folder ```<file_name>/rice/target/release/```. To initailize the debug version, replace "release" with "debug".
  * Alternatively if you have cargo installed, run the command ```cargo run```
  * Running the ai will allow you to send commands by imputting them into the terminal.
 ### Uci Commands
