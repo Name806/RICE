@@ -9,9 +9,9 @@ RICE is the Rust Intelligent Chess Engine. The goal of this project is to create
 If you want to test the ai using perftree (this is a program that makes sure the moves generated are accurate) follow these steps
  * install the fish shell
  * enter the source file ``` cd <file_name>/rice/src ```
- * edit the file perftree_script.fish and change the line ``` /home/parker/projects/rice/target/debug/rice "perftree" $argv ``` so that the file that gets called is the path so that ```/home/parker/projects ``` instead leads to where the file is on your system. To get that path, use the command ``` pwd ``` while in the directory you cloned the projects to.
+ * edit the file perftree_script.fish and change the line ``` /home/parker/projects/rice/target/debug/rice "perftree" $argv ``` so that the section ```/home/parker/projects ``` instead leads to where the file is on your system. To get that path, use the command ``` pwd ``` while in the directory you cloned the projects to.
  * Install perftree; directions here: [perftree](https://github.com/agausmann/perftree)
- * Make sure to install Stockfish 13, as later versions have a different response to perftree's imputs and perftree won't work, and earlier versions haven't been tested by me, so they may not work.
+ * Make sure to install Stockfish 13, as later versions have a different response to perftree's inputs and perftree won't work, and earlier versions haven't been tested by me, so they may not work.
  * Make sure ```perftree``` and ```stockfish``` are part of your path and can be run from the command line.
 
 ## Usage
