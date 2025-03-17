@@ -1,5 +1,5 @@
 # RICE
-RICE is the Rust Intelligent Chess Engine. The goal of this project is to be a fast chess engine by using efficient data structures and search algorithms, while being readable and maintainable.
+RICE is the Rust Intelligent Chess Engine. The goal of this project is to create a fast chess engine by using efficient data structures and search algorithms, while being readable and maintainable.
 
 ## Installation
  * clone the project ``` git clone https://github.com/Name806/RICE <file_name> ```
