@@ -129,11 +129,11 @@ fn main() {
 
     //save data for the ai to use later
     println!("Saving Results");
-    let json_data = serde_json::to_string(&all_move_data).unwrap();
+    let json_data = serde_json::to_string_pretty(&all_move_data).unwrap();
     let mut file = File::create(Constants::MOVE_DATA_FILE_NAME).unwrap();
     file.write_all(json_data.as_bytes()).unwrap();
 
-    let json_data = serde_json::to_string(&hashes).unwrap();
+    let json_data = serde_json::to_string_pretty(&hashes).unwrap();
     let mut file = File::create(Constants::HASHES_FILE_NAME).unwrap();
     file.write_all(json_data.as_bytes()).unwrap();
     println!("Results Saved to: {}", Constants::HASHES_FILE_NAME);
