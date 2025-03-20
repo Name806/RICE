@@ -1,7 +1,7 @@
 use std::cmp::Ordering;
 use std::ops::Neg;
 
-#[derive(Eq)]
+#[derive(Eq, Copy, Clone)]
 pub enum Score {
     Checkmate((bool, u32)),
     Draw,
