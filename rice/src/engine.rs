@@ -41,6 +41,20 @@ impl Engine {
 
     pub fn get_id_info(&self) -> (&'static str, &'static str) { (self.name, self.author) }
 
+    pub fn search_to_depth(&mut self, depth: u8) {
+        self.negamax(depth, 0, Score::Checkmate((false, 0)), Score::Checkmate((true, 0)));
+    }
+
+    pub fn get_best_found_move(&self) -> EncodedMove {
+        if let Some(game_entry) = self.transposition_table.lookup(self.game.hash, 0) {
+            if let Some(m) = game_entry.best_move {
+                return m;
+            }
+        }
+
+        self.get_move()
+    }
+
     fn evaluate_position(&self) -> Score {
         Score::Playing(self.evaluate_side(self.game.side) - self.evaluate_side(!self.game.side))
     }
@@ -85,12 +99,16 @@ impl Engine {
         }
 
         // todo: sort moves
-        let mut value = Score::Draw;
+        let mut value = Score::Checkmate((false, 0));
+        let mut best_move = None;
         for m in moves {
             self.game.make_move(&m);
             let new_value = -self.negamax(depth - 1, ply + 1, -beta, -alpha);
             self.game.unmake_move();
-            if new_value > value { value = new_value; }
+            if new_value > value { 
+                value = new_value; 
+                best_move = Some(m);
+            }
             if value > alpha { alpha = value; }
             if alpha > beta { break; }
         }
@@ -104,7 +122,7 @@ impl Engine {
             Bound::Exact
         };
 
-        self.transposition_table.store(self.game.hash, value, bound, depth);
+        self.transposition_table.store(self.game.hash, value, bound, depth, best_move);
 
         value
     }

@@ -108,8 +108,17 @@ fn handle_uci(move_data: &AllMoveData, hashes: &ZobristHashes) {
                 engine.set_game(game);
             }
             cmd if cmd.starts_with("go") => {
-                let m = engine.get_move();
-                println!("bestmove {}", m);
+                if cmd.contains("nothink") {
+                    let m = engine.get_move();
+                    println!("bestmove {}", m);
+                }
+                if let Some(depth) = cmd.find("depth")
+                    .and_then(|idx| cmd[idx + "depth".len()..].split_whitespace().next())
+                    .and_then(|num_str| num_str.parse::<u8>().ok()) {
+                        engine.search_to_depth(depth);
+                        let m = engine.get_best_found_move();
+                        println!("bestmove {}", m);
+                }
             }
             "quit" => return,
             _ => (),

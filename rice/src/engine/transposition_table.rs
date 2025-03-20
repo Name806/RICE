@@ -1,4 +1,5 @@
 use crate::score::Score;
+use crate::move_generation::EncodedMove;
 
 use std::mem;
 
@@ -18,6 +19,7 @@ pub struct TranspositionEntry {
     pub depth: u8,
     pub score: Score,
     pub bound: Bound,
+    pub best_move: Option<EncodedMove>,
 }
 
 pub struct TranspositionTable(Vec<Option<TranspositionEntry>>);
@@ -40,12 +42,13 @@ impl TranspositionTable {
         None
     }
 
-    pub fn store(&mut self, hash: u64, score: Score, bound: Bound, depth: u8) {
+    pub fn store(&mut self, hash: u64, score: Score, bound: Bound, depth: u8, best_move: Option<EncodedMove>) {
         let entry = TranspositionEntry {
             hash,
             depth,
             score,
             bound,
+            best_move,
         };
         let index = (hash % self.0.len() as u64) as usize;
         self.0[index] = Some(entry);
