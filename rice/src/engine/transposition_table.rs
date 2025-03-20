@@ -14,10 +14,10 @@ pub enum Bound {
 
 #[derive(Copy, Clone)]
 pub struct TranspositionEntry {
-    hash: u64,
-    depth: u8,
-    score: Score,
-    bound: Bound,
+    pub hash: u64,
+    pub depth: u8,
+    pub score: Score,
+    pub bound: Bound,
 }
 
 pub struct TranspositionTable(Vec<Option<TranspositionEntry>>);

@@ -155,7 +155,7 @@ pub struct Game {
     history: Vec<HistoryEntry>,
     move_data: AllMoveData,
     hashes: ZobristHashes,
-    hash: u64,
+    pub hash: u64,
 }
 
 pub enum GameState {

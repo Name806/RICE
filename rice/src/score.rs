@@ -52,6 +52,15 @@ impl PartialOrd for Score {
     }
 }
 
+impl Ord for Score {
+    fn cmp(&self, other: &Self) -> Ordering {
+        if let Some(o) = self.partial_cmp(other) {
+            return o;
+        }
+        Ordering::Equal
+    }
+}
+
 impl Neg for Score {
     type Output = Self;
     fn neg(self) -> Self::Output {
