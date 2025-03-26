@@ -41,6 +41,7 @@ The following is a comprehensive list of uci commands the ai has responses to.
  * To set up a custom position, enter the command ```position fen <fen>```; as an example, here is the fen ([Forsyth-Edwards Notation](https://www.chess.com/terms/fen-chess)) for the standard starting position in chess: "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
  * To set up the starting position without entering its fen: ```position startpos```
  * To get a move: ```go depth <depth>``` (make sure to set up a position first, otherwise it panics with the message "King not found!") If you choose too high a depth, the ai will think for a while before responding. How high a depth you can use before it becomes too slow depends on the system the ai is run on and how optimized the ai is, but I was able to get it to output on a depth of 5 in a few seconds.
+ * to search to a set depth: ```go infinite```
 
 ### Testing with Perftree
  * Check the installation instructions under "Perftree" to make sure you install and set up perftree correctly.
