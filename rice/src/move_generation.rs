@@ -165,7 +165,8 @@ pub enum GameState {
 }
 
 impl Game {
-    pub fn new(move_data: &AllMoveData, hashes: &ZobristHashes) -> Self {
+    const STARTING_FEN: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+    fn new(move_data: &AllMoveData, hashes: &ZobristHashes) -> Self {
         Self {
             piece_positions: vec![vec![BitBoard::new(); 6]; 2],
             occupancies: vec![BitBoard::new(); 3],
@@ -179,6 +180,10 @@ impl Game {
             hashes: hashes.clone(),
             hash: 0,
         }
+    }
+
+    pub fn new_starting(move_data: &AllMoveData, hashes: &ZobristHashes) -> Self {
+        Self::new_fen(String::from(Self::STARTING_FEN), move_data, hashes)
     }
 
     pub fn unmake_move(&mut self) {
@@ -231,6 +236,11 @@ impl Game {
         // variables to keep track of game history
         let mut capture_square = move_target;
         let mut rook_movement = (0, 0);
+        let old_castle_rights = self.castle_rights;
+        let old_hash = self.hash;
+        let old_en_passant = self.en_passant;
+        let old_fullmove = self.fullmove_number;
+        let old_halfmove = self.halfmove_timer;
 
         // update piece position
         self.piece_positions[self.side as usize][moved_piece as usize].move_bit(move_source, move_target);
@@ -353,14 +363,14 @@ impl Game {
 
         // save game to history
         self.history.push(HistoryEntry {
-            move_made: move_made.clone(),
-            castle_rights: self.castle_rights.clone(),
-            en_passant: self.en_passant.clone(),
-            fullmove_number: self.fullmove_number.clone(),
-            halfmove_timer: self.halfmove_timer.clone(),
+            move_made: *move_made,
+            castle_rights: old_castle_rights,
+            en_passant: old_en_passant,
+            fullmove_number: old_fullmove,
+            halfmove_timer: old_halfmove,
             capture_square,
             rook_movement,
-            hash: self.hash,
+            hash: old_hash,
         });
     }
 
@@ -524,7 +534,7 @@ impl Game {
         let both_occupancy = self.occupancies[BOTH_OCCUPANCIES];
         let king_position = self.piece_positions[side_to_move][Pieces::KING as usize];
 
-        let king_square = king_position.ls1b_index().expect("King not found!");
+        let king_square = king_position.ls1b_index().expect(&format!("King not found!: {}", self));
         let mut king_attacks = self.move_data.get_attacks(king_square, &Pieces::KING, self.side, &both_occupancy);
         king_attacks &= !self.occupancies[side_to_move];
         let without_king_occupancy = both_occupancy & !king_position;

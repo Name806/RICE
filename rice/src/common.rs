@@ -376,20 +376,6 @@ impl AllMoveData {
     }
 }
 
-pub struct EvalData {
-    pub material_values: Vec<i32>,
-    pub mobility_values: Vec<i32>,
-}
-
-impl EvalData {
-    pub fn new() -> Self {
-        EvalData {
-            material_values: vec![0, 100, 300, 325, 500, 900],
-            mobility_values: vec![0, 1, 1, 1, 1, 0],
-        }
-    }
-}
-
 #[derive(Serialize, Deserialize, Clone)]
 pub struct ZobristHashes {
     pub pieces: Vec<Vec<u64>>,

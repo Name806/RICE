@@ -1,2 +1,2 @@
 #!/bin/fish
-/home/parker/projects/rice/target/debug/rice "perftree" $argv
+/home/parker/projects/RICE/rice/target/release/rice "perftree" $argv

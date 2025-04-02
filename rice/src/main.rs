@@ -36,7 +36,7 @@ fn perftree(args: Vec<String>, all_move_data: &AllMoveData, hashes: &ZobristHash
     let mut game = Game::new_fen(fen.clone(), all_move_data, hashes);
     
     if args.len() >= 5 {
-        let moves = args[5..].to_vec();
+        let moves = args[4].split_whitespace().map(String::from).collect();
         if let Err(e) = game.parse_moves(moves) {
             eprintln!("Error: {}", e);
         }
@@ -67,8 +67,6 @@ fn perftree(args: Vec<String>, all_move_data: &AllMoveData, hashes: &ZobristHash
     write!(log_file, "{}", output).expect("failed to write to log");
 }
 
-const STARTING_FEN: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
-
 fn handle_uci(move_data: &AllMoveData, hashes: &ZobristHashes) {
     let stdin = io::stdin();
     let mut stdout = io::stdout();
@@ -91,9 +89,9 @@ fn handle_uci(move_data: &AllMoveData, hashes: &ZobristHashes) {
             "isready" => println!("readyok"),
             cmd if cmd.starts_with("position") => {
                 let parts: Vec<&str> = cmd.split_whitespace().collect();
-                let mut game = Game::new(move_data, hashes);
+                let mut game = Game::new_starting(move_data, hashes);
                 if parts[1] == "startpos" {
-                    game = Game::new_fen(String::from(STARTING_FEN), move_data, hashes);
+                    game = Game::new_starting(move_data, hashes);
                 } 
                 else if parts[1] == "fen" {
                     game = Game::new_fen(parts[2..].join(" "), move_data, hashes);
@@ -119,6 +117,16 @@ fn handle_uci(move_data: &AllMoveData, hashes: &ZobristHashes) {
                         let m = engine.get_best_found_move();
                         println!("bestmove {}", m);
                 }
+                if cmd.contains("infinite") {
+                    // default depth for "infinite" search
+                    let depth = 6;
+                    engine.search_to_depth(depth);
+                    let m = engine.get_best_found_move();
+                    println!("bestmove {}", m);
+                }
+            }
+            cmd if cmd.starts_with("printgame") => {
+                println!("{}", engine.game_string());
             }
             "quit" => return,
             _ => (),

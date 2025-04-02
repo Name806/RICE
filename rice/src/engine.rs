@@ -1,9 +1,15 @@
 mod transposition_table;
+mod move_heuristics;
+mod eval_data;
 
-use transposition_table::{TranspositionTable, Bound, TranspositionEntry};
-use crate::common::{AllMoveData, EvalData, Pieces, Constants, Color, ZobristHashes};
+use move_heuristics::MoveSorter;
+use eval_data::EvalData;
+use transposition_table::{TranspositionTable, Bound};
+
+use crate::common::{AllMoveData, Pieces, Constants, Color, ZobristHashes};
 use crate::move_generation::{Game, EncodedMove, GameState};
 use crate::score::Score;
+
 use std::cmp::{max, min};
 
 pub struct Engine {
@@ -11,19 +17,17 @@ pub struct Engine {
     author: &'static str,
     game: Game,
     move_data: AllMoveData,
-    eval_data: EvalData,
     transposition_table: TranspositionTable,
 }
 
 impl Engine {
     pub fn new(move_data: &AllMoveData, hashes: &ZobristHashes) -> Self {
-        let game = Game::new(move_data, hashes);
+        let game = Game::new_starting(move_data, hashes);
         Self {
             name: "RICE",
             author: "Parker White",
             game,
             move_data: move_data.clone(),
-            eval_data: EvalData::new(),
             transposition_table: TranspositionTable::new(),
         }
     }
@@ -37,6 +41,10 @@ impl Engine {
 
     pub fn set_game(&mut self, game: Game) {
         self.game = game;
+    }
+
+    pub fn game_string(&self) -> String {
+        format!("{}", self.game)
     }
 
     pub fn get_id_info(&self) -> (&'static str, &'static str) { (self.name, self.author) }
@@ -64,10 +72,10 @@ impl Engine {
         for piece_index in 0..6 {
             let mut piece_positions = self.game.piece_positions[side as usize][piece_index];
             while let Some(piece_square) = piece_positions.pop_ls1b() {
-                score += self.eval_data.material_values[piece_index];
+                score += EvalData::MATERIAL_VALUE[piece_index];
                 let piece_type = Pieces::int_to_piece(piece_index as u8);
                 let num_controlled_squares = self.move_data.get_attacks(piece_square, &piece_type, side, &self.game.occupancies[Constants::BOTH_OCCUPANCIES]).count_bits();
-                score += num_controlled_squares as i32 * self.eval_data.mobility_values[piece_index];
+                score += num_controlled_squares as i32 * EvalData::MOBILITY_VALUE[piece_index];
             }
         }
 
@@ -78,16 +86,18 @@ impl Engine {
     fn negamax(&mut self, depth: u8, ply: u32, mut alpha: Score, mut beta: Score) -> Score {
         let original_alpha = alpha;
 
+        let mut best_move = None;
         if let Some(entry) = self.transposition_table.lookup(self.game.hash, depth) {
             match entry.bound {
                 EXACT => return entry.score,
                 LOWER => alpha = max(alpha, entry.score),
                 UPPER => beta = min(beta, entry.score),
             }
+            best_move = entry.best_move;
         }
 
         if depth == 0 {
-            return self.quiescence(ply, alpha, beta);
+            return -self.quiescence(ply, -beta, alpha);
         }
 
         let mut moves = Vec::new();
@@ -98,9 +108,8 @@ impl Engine {
             GameState::Normal => (),
         }
 
-        // todo: sort moves
+        let moves = MoveSorter::sort(moves);
         let mut value = Score::Checkmate((false, 0));
-        let mut best_move = None;
         for m in moves {
             self.game.make_move(&m);
             let new_value = -self.negamax(depth - 1, ply + 1, -beta, -alpha);
@@ -128,7 +137,7 @@ impl Engine {
     }
 
     fn quiescence(&mut self, ply: u32, mut alpha: Score, beta: Score) -> Score {
-        let stand_pat = self.evaluate_position();
+        let stand_pat = -self.evaluate_position();
         let mut best_value = stand_pat;
         if stand_pat >= beta { return stand_pat; }
         if alpha < stand_pat { alpha = stand_pat; }
@@ -141,11 +150,11 @@ impl Engine {
             GameState::Normal => (),
         }
 
-        // todo: sort moves
+        let moves = MoveSorter::sort(moves);
 
         for m in moves {
             if !(m.capture().is_some() || m.promoted_piece().is_some() || m.castle()) {
-                continue;
+                break;
             }
 
             self.game.make_move(&m);
