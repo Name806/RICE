@@ -8,6 +8,11 @@ pub enum Score {
     Playing(i32),
 }
 
+impl Score {
+    pub const NEG_INF: Self = Self::Checkmate((false, 0));
+    pub const INF: Self = Self::Checkmate((true, 0));
+}
+
 impl PartialEq for Score {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {

@@ -186,12 +186,12 @@ impl Game {
         Self::new_fen(String::from(Self::STARTING_FEN), move_data, hashes)
     }
 
-    pub fn unmake_move(&mut self) {
+    pub fn unmake_move(&mut self, move_made: EncodedMove) {
         let history = self.history.pop().expect("unmake move called on game with no history");
 
-        let piece_moved = history.move_made.piece_moved();
-        let source_square = history.move_made.source_square();
-        let target_square = history.move_made.target_square();
+        let piece_moved = move_made.piece_moved();
+        let source_square = move_made.source_square();
+        let target_square = move_made.target_square();
 
         // update by reversing move
 
@@ -200,20 +200,20 @@ impl Game {
         self.occupancies[self.side as usize].move_bit(target_square, source_square);
         self.occupancies[Constants::BOTH_OCCUPANCIES].move_bit(target_square, source_square);
 
-        if let Some(captured_piece) = history.move_made.capture() {
+        if let Some(captured_piece) = move_made.capture() {
             self.piece_positions[!self.side as usize][captured_piece as usize].set_bit(history.capture_square);
             self.occupancies[!self.side as usize].set_bit(history.capture_square);
         self.occupancies[Constants::BOTH_OCCUPANCIES].set_bit(history.capture_square);
         }
         
-        if history.move_made.castle() {
+        if move_made.castle() {
             let (rook_source, rook_target) = history.rook_movement;
             self.piece_positions[self.side as usize][Pieces::ROOK as usize].move_bit(rook_target, rook_source);
             self.occupancies[self.side as usize].move_bit(rook_target, rook_source);
             self.occupancies[Constants::BOTH_OCCUPANCIES].move_bit(rook_target, rook_source);
         }
 
-        if let Some(promoted_piece) = history.move_made.promoted_piece() {
+        if let Some(promoted_piece) = move_made.promoted_piece() {
             self.piece_positions[self.side as usize][promoted_piece as usize].pop_bit(target_square);
             self.piece_positions[self.side as usize][Pieces::PAWN as usize].set_bit(target_square);
         }
@@ -227,7 +227,7 @@ impl Game {
         self.hash = history.hash;
     }
 
-    pub fn make_move(&mut self, move_made: &EncodedMove) {
+    pub fn make_move(&mut self, move_made: EncodedMove) {
         self.hash ^= self.hashes.castle_rights[self.castle_rights as usize];
         let moved_piece = move_made.piece_moved();
         let move_source = move_made.source_square();
@@ -363,7 +363,7 @@ impl Game {
 
         // save game to history
         self.history.push(HistoryEntry {
-            move_made: *move_made,
+            move_made: move_made,
             castle_rights: old_castle_rights,
             en_passant: old_en_passant,
             fullmove_number: old_fullmove,
@@ -499,10 +499,10 @@ impl Game {
                 }
             }
             let mut move_options = Vec::new();
-            self.generate_moves(&mut move_options);
+            self.generate_moves(&mut move_options, false);
             for move_option in move_options {
                 if move_option.source_square() == from_index && move_option.target_square() == to_index && move_option.promoted_piece() == promotion_piece {
-                    self.make_move(&move_option);
+                    self.make_move(move_option);
                     break;
                 }
             }
@@ -526,7 +526,7 @@ impl Game {
         attacked
     }
 
-    pub fn generate_moves(&self, moves: &mut Vec<EncodedMove>) -> GameState {
+    pub fn generate_moves(&self, moves: &mut Vec<EncodedMove>, captures_only: bool) -> GameState {
         if self.halfmove_timer > 100 {
             return GameState::Draw;
         }
@@ -550,7 +550,7 @@ impl Game {
         
         let num_checking = checking_pieces.count_bits();
 
-        self.add_moves(moves, king_square, &king_attacks, Pieces::KING, false);
+        self.add_moves(moves, king_square, &king_attacks, Pieces::KING, false, captures_only);
         if num_checking > 1 {
             if moves.len() == 0 {
                 return GameState::Checkmate;
@@ -579,7 +579,7 @@ impl Game {
             }
         }
 
-        self.add_moves(moves, king_square, &castle_attacks, Pieces::KING, true);
+        self.add_moves(moves, king_square, &castle_attacks, Pieces::KING, true, captures_only);
 
         let queen_attacks_from_king = self.move_data.get_attacks(king_square, &Pieces::QUEEN, self.side, &both_occupancy);
 
@@ -591,7 +591,7 @@ impl Game {
                 let opponent_attacks = self.move_data.get_attacks(opponent_square, &sliding_piece, !self.side, &both_occupancy);
                 if !(self.move_data.squares_between(opponent_square, king_square)).not_zero() { continue; }
                 let pinned_pieces = opponent_attacks & queen_attacks_from_king;
-                self.calculate_pinned_moves(moves, &mut pieces_to_ignore, opponent_square, &pinned_pieces, king_square, &both_occupancy, &capture_mask, &block_mask);
+                self.calculate_pinned_moves(moves, &mut pieces_to_ignore, opponent_square, &pinned_pieces, king_square, &both_occupancy, &capture_mask, &block_mask, captures_only);
             }
         }
 
@@ -601,7 +601,7 @@ impl Game {
             let mut piece_position = self.piece_positions[self.side as usize][piece as usize] & !pieces_to_ignore;
             while let Some(piece_square) = piece_position.pop_ls1b() {
                 let piece_attacks = self.get_legal_attacks(piece_square, piece_type, &both_occupancy, &block_mask, &capture_mask, king_square);
-                self.add_moves(moves, piece_square, &piece_attacks, piece_type, false);
+                self.add_moves(moves, piece_square, &piece_attacks, piece_type, false, captures_only);
             }
         }
         if moves.len() == 0 {
@@ -615,7 +615,7 @@ impl Game {
         return GameState::Normal;
     }
 
-    fn calculate_pinned_moves(&self, moves: &mut Vec<EncodedMove>, pieces_to_ignore: &mut BitBoard, opponent_square: u8, pinned_pieces: &BitBoard, king_square: u8, both_occupancy: &BitBoard, block_mask: &BitBoard, capture_mask: &BitBoard) {
+    fn calculate_pinned_moves(&self, moves: &mut Vec<EncodedMove>, pieces_to_ignore: &mut BitBoard, opponent_square: u8, pinned_pieces: &BitBoard, king_square: u8, both_occupancy: &BitBoard, block_mask: &BitBoard, capture_mask: &BitBoard, captures_only: bool) {
         let between_king_and_opponent = self.move_data.squares_between(opponent_square, king_square);
         if !between_king_and_opponent.not_zero() { return; }
         for piece in 0..6 {
@@ -630,7 +630,7 @@ impl Game {
                 let pinned_movement = self.move_data.squares_between(opponent_square, king_square) | opponent_position;
                 let piece_attacks = self.get_legal_attacks(pinned_square, piece_type, &both_occupancy, block_mask, capture_mask, king_square);
                 let pinned_attacks = pinned_movement & piece_attacks;
-                self.add_moves(moves, pinned_square, &pinned_attacks, piece_type, false);
+                self.add_moves(moves, pinned_square, &pinned_attacks, piece_type, false, captures_only);
                 *pieces_to_ignore |= BitBoard::new_set(pinned_square);
             }
         }
@@ -694,7 +694,7 @@ impl Game {
     }
 
     
-    fn add_moves(&self, all_moves: &mut Vec<EncodedMove>, source_square: u8, target_squares: &BitBoard, piece_moved: Pieces, castle: bool) {
+    fn add_moves(&self, all_moves: &mut Vec<EncodedMove>, source_square: u8, target_squares: &BitBoard, piece_moved: Pieces, castle: bool, captures_only: bool) {
         let mut target_squares = target_squares.clone();
         'target_square: while let Some(target_square) = target_squares.pop_ls1b() {
             let mut target_position = BitBoard::new();
@@ -713,6 +713,7 @@ impl Game {
                 if (target_position & self.move_data.get_promotion_ranks(self.side)).not_zero() {
                     let mut moves: Vec<EncodedMove> = Vec::new();
                     const PROMOTION_OPTIONS: [Pieces; 4] = [Pieces::QUEEN, Pieces::BISHOP, Pieces::ROOK, Pieces::KNIGHT];
+                    if captures_only && capture.is_none() { continue; }
                     for promoted_piece in PROMOTION_OPTIONS {
                         moves.push(Move {
                             source_square,
@@ -741,6 +742,7 @@ impl Game {
             if en_passant {
                 capture = Some(Pieces::PAWN);
             }
+            if captures_only && capture.is_none() { continue; }
             let calculated_move = Move {
                 source_square,
                 target_square,

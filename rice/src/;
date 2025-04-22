@@ -34,7 +34,7 @@ impl Engine {
 
     pub fn get_move(&self) -> EncodedMove {
         let mut moves = Vec::new();
-        self.game.generate_moves(&mut moves, false);
+        self.game.generate_moves(&mut moves);
         
         moves[0]
     }
@@ -50,7 +50,7 @@ impl Engine {
     pub fn get_id_info(&self) -> (&'static str, &'static str) { (self.name, self.author) }
 
     pub fn search_to_depth(&mut self, depth: u8) {
-        self.search(depth, 0);
+        self.negamax(depth, 0, Score::Checkmate((false, 0)), Score::Checkmate((true, 0)));
     }
 
     pub fn get_best_found_move(&self) -> EncodedMove {
@@ -65,13 +65,13 @@ impl Engine {
 
     pub fn no_search_best_eval(&mut self) -> EncodedMove {
         let mut moves = Vec::new();
-        self.game.generate_moves(&mut moves, false);
+        self.game.generate_moves(&mut moves);
         let mut best_move = moves[0];
         let mut max_eval = Score::Checkmate((false, 0));
         for m in moves {
-            self.game.make_move(m);
+            self.game.make_move(&m);
             let eval = self.evaluate_position();
-            self.game.unmake_move(m);
+            self.game.unmake_move();
             if eval > max_eval {
                 best_move = m;
                 max_eval = eval;
@@ -81,7 +81,8 @@ impl Engine {
     }
 
     fn evaluate_position(&self) -> Score {
-        Score::Playing(self.evaluate_side(Color::WHITE) - self.evaluate_side(Color::BLACK))
+        let score = Score::Playing(self.evaluate_side(Color::WHITE) - self.evaluate_side(Color::BLACK))
+        f self.game.side = Color::WHITE 
     }
 
     fn evaluate_side(&self, side: Color) -> i32 {
@@ -99,41 +100,91 @@ impl Engine {
         score
     }
 
-    fn search(&mut self, depth: u8, ply: u32) -> Score {
-        // check transposition table
+    // call with -inf, inf for full search
+    fn negamax(&mut self, depth: u8, ply: u32, mut alpha: Score, mut beta: Score) -> Score {
+        let original_alpha = alpha;
+
+        let mut best_move = None;
         if let Some(entry) = self.transposition_table.lookup(self.game.hash, depth) {
-            if matches!(entry.bound, Bound::Exact) {
-                return entry.score;
+            match entry.bound {
+                EXACT => return entry.score,
+                LOWER => alpha = max(alpha, entry.score),
+                UPPER => beta = min(beta, entry.score),
             }
+            best_move = entry.best_move;
         }
 
         if depth == 0 {
-            return self.evaluate_position();
+            return self.quiescence(ply, alpha, beta);
         }
 
         let mut moves = Vec::new();
-        let game_state = self.game.generate_moves(&mut moves, false);
+        let game_state = self.game.generate_moves(&mut moves);
         match game_state {
             GameState::Checkmate => return Score::Checkmate((false, ply)),
             GameState::Draw => return Score::Draw,
             GameState::Normal => (),
         }
 
-        let mut max_score = Score::NEG_INF;
-        let mut best_move = moves[0];
+        let moves = MoveSorter::sort(moves);
+        let mut value = Score::Checkmate((false, 0));
         for m in moves {
-            self.game.make_move(m);
-            let score = -self.search(depth - 1, ply + 1);
-            self.game.unmake_move(m);
-
-            if score > max_score { 
-                max_score = score; 
-                best_move = m;
+            self.game.make_move(&m);
+            let new_value = -self.negamax(depth - 1, ply + 1, -beta, -alpha);
+            self.game.unmake_move();
+            if new_value > value { 
+                value = new_value; 
+                best_move = Some(m);
             }
+            if value > alpha { alpha = value; }
+            if alpha > beta { break; }
         }
 
-        self.transposition_table.store(self.game.hash, max_score, Bound::Exact, depth, Some(best_move));
-        max_score
+        let bound = if value <= original_alpha {
+            Bound::Upper
+        } else if value >= beta {
+            Bound::Lower
+        }
+        else {
+            Bound::Exact
+        };
+
+        self.transposition_table.store(self.game.hash, value, bound, depth, best_move);
+
+        value
+    }
+
+    fn quiescence(&mut self, ply: u32, mut alpha: Score, beta: Score) -> Score {
+        let stand_pat = -self.evaluate_position();
+        let mut best_value = stand_pat;
+        if stand_pat >= beta { return stand_pat; }
+        if alpha < stand_pat { alpha = stand_pat; }
+
+        let mut moves = Vec::new();
+        let game_state = self.game.generate_moves(&mut moves);
+        match game_state {
+            GameState::Checkmate => return Score::Checkmate((false, ply)),
+            GameState::Draw => return Score::Draw,
+            GameState::Normal => (),
+        }
+
+        let moves = MoveSorter::sort(moves);
+
+        for m in moves {
+            if !(m.capture().is_some() || m.promoted_piece().is_some() || m.castle()) {
+                break;
+            }
+
+            self.game.make_move(&m);
+            let score = -self.quiescence(ply + 1, -beta, -alpha);
+            self.game.unmake_move();
+
+            if score >= beta { return score; }
+            if score > best_value { best_value = score; }
+            if score > alpha { alpha = score; }
+        }
+
+        best_value
     }
 }
 

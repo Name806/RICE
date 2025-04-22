@@ -43,7 +43,7 @@ fn perftree(args: Vec<String>, all_move_data: &AllMoveData, hashes: &ZobristHash
     }
 
     let mut move_options = Vec::new();
-    game.generate_moves(&mut move_options);
+    game.generate_moves(&mut move_options, false);
     let mut total_nodes = 0;
 
     let mut log_file = OpenOptions::new().create(true).append(true).open("perftree_output.log").expect("failed to open log file");
@@ -52,9 +52,9 @@ fn perftree(args: Vec<String>, all_move_data: &AllMoveData, hashes: &ZobristHash
     for game_move in move_options {
         let mut move_nodes = 0;
         if depth > 0 {
-            game.make_move(&game_move);
+            game.make_move(game_move);
             move_nodes = count_nodes(depth - 1, &mut game);
-            game.unmake_move();
+            game.unmake_move(game_move);
         }
         total_nodes += move_nodes;
         output.push_str(&format!("{} {}\n", game_move, move_nodes));
@@ -118,11 +118,13 @@ fn handle_uci(move_data: &AllMoveData, hashes: &ZobristHashes) {
                         println!("bestmove {}", m);
                 }
                 if cmd.contains("infinite") {
+                    let best_move = engine.no_search_best_eval();
+                    println!("bestmove {}", best_move);
                     // default depth for "infinite" search
-                    let depth = 6;
-                    engine.search_to_depth(depth);
-                    let m = engine.get_best_found_move();
-                    println!("bestmove {}", m);
+                    //let depth = 6;
+                    //engine.search_to_depth(depth);
+                    //let m = engine.get_best_found_move();
+                    //println!("bestmove {}", m);
                 }
             }
             cmd if cmd.starts_with("printgame") => {
@@ -160,13 +162,13 @@ fn count_nodes(depth: u32, game: &mut Game) -> u32 {
     if depth == 0 { return 1; }
 
     let mut move_list : Vec<EncodedMove> = Vec::new();
-    let game_state = game.generate_moves(&mut move_list);
+    let game_state = game.generate_moves(&mut move_list, false);
     if matches!(game_state, GameState::Draw | GameState::Checkmate) { return 0; }
     let mut node_count = 0;
-    for new_move in move_list.iter() {
+    for new_move in move_list {
         game.make_move(new_move);
         node_count += count_nodes(depth - 1, game);
-        game.unmake_move();
+        game.unmake_move(new_move);
     }
     node_count
 }
